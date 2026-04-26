@@ -152,11 +152,11 @@ The image is self-contained and starts with:
 bun run start:bun
 ```
 
-Build a multi-arch image:
+Build an `linux/amd64` image:
 
 ```bash
 docker buildx build \
-  --platform linux/amd64,linux/arm64 \
+  --platform linux/amd64 \
   -f dockerfile \
   -t your-dockerhub-user/mailgun-ses-proxy:latest \
   --push .

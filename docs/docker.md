@@ -52,13 +52,13 @@ Docker also runs the same healthcheck inside the container.
 
 ## Publishing
 
-The included GitHub Actions workflow builds and publishes a multi-arch image to GitHub Container Registry on pushes to `main` and on tags.
+The included GitHub Actions workflow builds and publishes an `linux/amd64` image to GitHub Container Registry on pushes to `main` and on tags.
 
 Manual build:
 
 ```bash
 docker buildx build \
-  --platform linux/amd64,linux/arm64 \
+  --platform linux/amd64 \
   -f dockerfile \
   -t ghcr.io/OWNER/mailgun-ses-proxy:latest \
   --push .
