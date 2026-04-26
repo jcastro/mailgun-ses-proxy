@@ -19,6 +19,8 @@ const HEADER_KEYS_TO_SKIP = new Set([
     "sender",
 ])
 
+const RFC_5322_HEADER_NAME = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/
+
 function doSubstitution(inputText: string | undefined, substitutions: RecipientVariables = {}) {
     if (!inputText) return ""
 
@@ -60,6 +62,8 @@ function asAddressList(value: unknown): string[] | undefined {
 
 function cleanMailgunHeaderValue(value: string) {
     return value
+        .replace(/[\r\n]+[ \t]*/g, " ")
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
         .split(",")
         .map((part) => part.trim())
         .filter((part) => part && part !== "<>" && part !== "<%tag_unsubscribe_email%>")
@@ -71,6 +75,7 @@ function buildMailgunHeaders(input: any, recipientVariables: RecipientVariables)
     const addHeader = (name: string, value: unknown) => {
         const cleanName = name.trim()
         if (!cleanName || HEADER_KEYS_TO_SKIP.has(cleanName.toLowerCase())) return
+        if (!RFC_5322_HEADER_NAME.test(cleanName)) return
 
         const rendered = cleanMailgunHeaderValue(doSubstitution(String(value ?? ""), recipientVariables))
         if (!rendered) return
@@ -104,11 +109,11 @@ export interface PreparedEmail {
 
 export function preparePayload(input: any, siteId: string): PreparedEmail[] {
     const recepientVariables = parseRecipientVariables(input["recipient-variables"])
-    const receivers = asArray(input.to)
+    const receivers = asAddressList(input.to) || []
     const result = receivers.map((receiverEmail: string | number) => {
         const recipientEmail = String(receiverEmail)
         const recipientVariables = recepientVariables[recipientEmail] || {}
-        const replyTo = input["h:Reply-To"] ? [input["h:Reply-To"]] : undefined
+        const replyTo = asAddressList(input["h:Reply-To"])
         const headers = buildMailgunHeaders(input, recipientVariables)
         const cc = asAddressList(input["h:Cc"])
         const bcc = asAddressList(input["h:Bcc"])
@@ -214,6 +219,14 @@ function unwrapSnsEvent(inputEvent: string): SESEventPayload {
     return parsed as SESEventPayload
 }
 
+function tryUnwrapSnsEvent(inputEvent: string): SESEventPayload | null {
+    try {
+        return unwrapSnsEvent(inputEvent)
+    } catch {
+        return null
+    }
+}
+
 function normalizeEventTimestamp(value: string | Date | undefined, fallback = new Date()) {
     if (!value) return fallback
     if (value instanceof Date) return value
@@ -255,7 +268,8 @@ type MailgunEventPayload = Prisma.NewsletterNotificationsGetPayload<{
 export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) {
     const format = (event: MailgunEventPayload) => {
         const eventTimestamp = (event.timestamp || event.created).getTime()
-        const originalSESEvent = unwrapSnsEvent(event.rawEvent)
+        const originalSESEvent = tryUnwrapSnsEvent(event.rawEvent)
+        const eventType = originalSESEvent?.eventType
         const emailId = event.newsletter.newsletterBatch.batchId
         const out = {
             event: event.type,
@@ -273,7 +287,7 @@ export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) 
             },
         } as MailgunEvents
 
-        if (originalSESEvent.eventType == "Bounce") {
+        if (originalSESEvent && eventType == "Bounce") {
             const isTransientBounce = originalSESEvent.bounce?.bounceType === "Transient"
             out["severity"] = isTransientBounce ? "temporary" : "permanent"
             out["reason"] = isTransientBounce ? "temporary-bounce" : "suppress-bounce"
@@ -284,7 +298,7 @@ export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) 
             }
         }
 
-        if (originalSESEvent.eventType == "DeliveryDelay") {
+        if (originalSESEvent && eventType == "DeliveryDelay") {
             out["severity"] = "temporary"
             out["reason"] = originalSESEvent.deliveryDelay?.delayType || "delivery-delay"
             out["delivery-status"] = {
@@ -294,7 +308,7 @@ export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) 
             }
         }
 
-        if (originalSESEvent.eventType == "Reject" || originalSESEvent.eventType == "RenderingFailure") {
+        if (originalSESEvent && (eventType == "Reject" || eventType == "RenderingFailure")) {
             out["severity"] = "permanent"
             out["reason"] = originalSESEvent.reject?.reason || originalSESEvent.failure?.errorMessage || "rejected"
             out["delivery-status"] = {
@@ -304,23 +318,23 @@ export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) 
             }
         }
 
-        if (originalSESEvent.eventType == "Complaint") {
+        if (originalSESEvent && eventType == "Complaint") {
             out["severity"] = "permanent"
             out["reason"] = originalSESEvent.complaint?.complaintFeedbackType || "complained"
         }
 
-        if (originalSESEvent.eventType == "Click" && originalSESEvent.click?.link) {
+        if (originalSESEvent && eventType == "Click" && originalSESEvent.click?.link) {
             out["url"] = originalSESEvent.click.link
         }
 
-        if (originalSESEvent.eventType == "Open" && (originalSESEvent.open?.ipAddress || originalSESEvent.open?.userAgent)) {
+        if (originalSESEvent && eventType == "Open" && (originalSESEvent.open?.ipAddress || originalSESEvent.open?.userAgent)) {
             out["client-info"] = {
                 "client-ip": originalSESEvent.open?.ipAddress,
                 "user-agent": originalSESEvent.open?.userAgent,
             }
         }
 
-        if (originalSESEvent.eventType == "Click" && (originalSESEvent.click?.ipAddress || originalSESEvent.click?.userAgent)) {
+        if (originalSESEvent && eventType == "Click" && (originalSESEvent.click?.ipAddress || originalSESEvent.click?.userAgent)) {
             out["client-info"] = {
                 "client-ip": originalSESEvent.click?.ipAddress,
                 "user-agent": originalSESEvent.click?.userAgent,

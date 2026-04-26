@@ -78,7 +78,7 @@ export async function getEmailEvents(params: EventsProps) {
  */
 export function validateQueryParams(searchParams: URLSearchParams): QueryParams {
     const now = Math.floor(Date.now() / 1000);
-    const event = searchParams.get("event") || "delivered OR opened OR failed OR unsubscribed OR complained";
+    const event = searchParams.get("event") || "accepted OR delivered OR opened OR clicked OR failed OR unsubscribed OR complained";
     const ascending = String(searchParams.get("ascending") || "").toLowerCase();
 
     return {

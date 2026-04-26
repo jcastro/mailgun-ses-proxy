@@ -5,6 +5,7 @@ vi.stubEnv('SYSTEM_FROM_ADDRESS', 'system@example.com')
 vi.stubEnv('TRANSACTIONAL_CONFIGURATION_SET_NAME', 'test-config-set')
 vi.stubEnv('NEWSLETTER_CONFIGURATION_SET_NAME', 'newsletter-config-set')
 vi.stubEnv('NODE_ENV', 'test')
+vi.stubEnv('LOG_LEVEL', 'silent')
 
 // Mock AWS SDK
 vi.mock('@aws-sdk/client-sesv2', () => ({

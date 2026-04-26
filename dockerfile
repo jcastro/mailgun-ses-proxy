@@ -16,7 +16,7 @@ USER bun
 
 # Copy package files and install dependencies
 COPY --chown=bun:bun package.json package-lock.json* bun.lock* ./
-RUN bun install
+RUN bun install --frozen-lockfile
 
 # Copy the rest of the application code
 COPY --chown=bun:bun . .
