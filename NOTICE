@@ -1,0 +1,14 @@
+This project is a modified distribution of mailgun-ses-proxy.
+
+Upstream project:
+https://github.com/typetale-app/mailgun-ses-proxy
+
+The upstream project is licensed under the GNU Affero General Public
+License v3.0. This repository keeps the same AGPL-3.0 license.
+
+Notable changes in this distribution include:
+- Ghost newsletter compatibility improvements.
+- Amazon SES event mapping to Mailgun-compatible events.
+- Mailgun suppression endpoint compatibility for Ghost.
+- Docker, GHCR, and deployment documentation.
+- Security and packaging cleanup for reusable deployments.

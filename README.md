@@ -6,6 +6,10 @@ Dockerized Mailgun-compatible API proxy for Ghost newsletters, backed by Amazon 
 
 This service lets a self-hosted Ghost instance keep using Ghost's Mailgun newsletter integration while sending through Amazon SES. Ghost talks to this proxy as if it were Mailgun; the proxy queues and sends email through SES and exposes Mailgun-like event/suppression endpoints back to Ghost.
 
+## Provenance
+
+This repository is not a from-scratch implementation. It is a modified distribution of [`typetale-app/mailgun-ses-proxy`](https://github.com/typetale-app/mailgun-ses-proxy), kept under the same AGPL-3.0 license. See [NOTICE](NOTICE) for attribution and a summary of changes in this distribution.
+
 ## Purpose
 
 Ghost natively integrates with Mailgun for bulk newsletter delivery and analytics. This proxy provides the Mailgun API surface Ghost needs, while using SES for delivery.
@@ -311,7 +315,7 @@ Test the proxy directly:
 
 ```bash
 curl -X POST http://localhost:3000/v3/your-site-id/messages \
-  -H "Authorization: Bearer your-api-key" \
+  -u "api:your-api-key" \
   -F "from=test@yourdomain.com" \
   -F "to=recipient@example.com" \
   -F "subject=Test Email" \
@@ -333,10 +337,6 @@ curl -X POST http://localhost:3000/v3/your-site-id/messages \
 - Use HTTPS in production deployments
 - Regularly update dependencies for security patches
 
-## Adopted by
-
-The Mailgun-to-SES proxy is currently being used in production at [typetale.app](https://typetale.app) for sending both newsletter and transactional emails. It has proven to be a stable and scalable solution that meets all the service requirements.
-
 ## License
 
-AGPL-3
+AGPL-3.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
