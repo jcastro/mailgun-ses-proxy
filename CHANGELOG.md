@@ -17,6 +17,12 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.3 - 2026-04-27
+
+- Extended SES bulk-send fallback detection to cover `SendBulkTemplatedEmail` authorization errors.
+- Switched the release workflow to CI plus GitHub Releases only; Docker images are now built and pushed locally to GHCR.
+- Updated Docker publishing docs for local `linux/amd64` image builds.
+
 ## 2.1.2 - 2026-04-27
 
 - Added fallback from SES `SendBulkEmail` to individual `SendEmail` calls when the runtime IAM user lacks bulk-send permission.

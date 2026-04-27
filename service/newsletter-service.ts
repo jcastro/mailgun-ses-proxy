@@ -275,7 +275,8 @@ async function recordNewsletterFailure(
 function isBulkSendPermissionError(error: unknown) {
     const name = typeof error === "object" && error && "name" in error ? String(error.name) : ""
     const message = error instanceof Error ? error.message : String(error)
-    return name === "AccessDeniedException" && message.includes("SendBulkEmail")
+    return name === "AccessDeniedException"
+        && (message.includes("SendBulkEmail") || message.includes("SendBulkTemplatedEmail"))
 }
 
 async function sendBulkEmailBatch(

@@ -69,9 +69,20 @@ Docker also runs the same healthcheck inside the container.
 
 ## Publishing
 
-The included GitHub Actions workflow builds and publishes an `linux/amd64` image to GitHub Container Registry on pushes to `main` and on tags.
+Build and publish the `linux/amd64` image locally, then let GitHub Actions run CI and create the GitHub Release from the version tag.
 
-When a `v*` tag is pushed, the workflow also creates a GitHub Release after the Docker image has been published. Use:
+Manual build:
+
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f dockerfile \
+  -t ghcr.io/OWNER/mailgun-ses-proxy:vX.Y.Z \
+  -t ghcr.io/OWNER/mailgun-ses-proxy:latest \
+  --push .
+```
+
+Then create and push the matching version tag:
 
 ```bash
 npm run release:patch
@@ -83,14 +94,4 @@ Each release has a matching image tag:
 
 ```text
 ghcr.io/OWNER/mailgun-ses-proxy:vX.Y.Z
-```
-
-Manual build:
-
-```bash
-docker buildx build \
-  --platform linux/amd64 \
-  -f dockerfile \
-  -t ghcr.io/OWNER/mailgun-ses-proxy:latest \
-  --push .
 ```

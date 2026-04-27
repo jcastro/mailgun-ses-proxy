@@ -163,14 +163,15 @@ Build an `linux/amd64` image:
 docker buildx build \
   --platform linux/amd64 \
   -f dockerfile \
-  -t your-dockerhub-user/mailgun-ses-proxy:latest \
+  -t ghcr.io/jcastro/mailgun-ses-proxy:vX.Y.Z \
+  -t ghcr.io/jcastro/mailgun-ses-proxy:latest \
   --push .
 ```
 
 Then users can set:
 
 ```bash
-IMAGE=your-dockerhub-user/mailgun-ses-proxy:latest
+IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:latest
 docker compose up -d
 ```
 
@@ -178,9 +179,14 @@ Do not bake secrets into the image. All secrets must come from `.env`, Docker se
 
 ## Releases
 
-Versioned releases are published from `v*` git tags. Each release includes generated GitHub notes and a matching GHCR image tag.
+Versioned releases are published from `v*` git tags. Build and push the GHCR image locally first, then push the git tag so GitHub can run CI and create the release notes.
 
 ```bash
+docker buildx build --platform linux/amd64 -f dockerfile \
+  -t ghcr.io/jcastro/mailgun-ses-proxy:vX.Y.Z \
+  -t ghcr.io/jcastro/mailgun-ses-proxy:latest \
+  --push .
+
 npm run release:patch
 npm run release:minor
 npm run release:major

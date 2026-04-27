@@ -188,7 +188,10 @@ describe("Newsletter service regressions", () => {
         ])
     })
 
-    it("falls back to individual SES sends when SendBulkEmail is not allowed", async () => {
+    it.each([
+        "ses:SendBulkEmail",
+        "ses:SendBulkTemplatedEmail",
+    ])("falls back to individual SES sends when %s is not allowed", async (deniedAction) => {
         vi.stubEnv("RATE_LIMIT", "1000000")
         vi.stubEnv("MAX_CONCURRENT", "5000")
         vi.stubEnv("SES_BULK_SEND_ENABLED", "true")
@@ -217,7 +220,7 @@ describe("Newsletter service regressions", () => {
         sesSend.mockImplementation(async () => {
             callNumber++
             if (callNumber === 1) {
-                const error = new Error("User is not authorized to perform `ses:SendBulkEmail`")
+                const error = new Error(`User is not authorized to perform \`${deniedAction}\``)
                 ;(error as Error & { name: string }).name = "AccessDeniedException"
                 throw error
             }
