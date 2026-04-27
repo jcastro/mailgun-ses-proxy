@@ -6,6 +6,7 @@ export type ItemFn<T = any> = () => Promise<T>;
 interface ItemWrapper {
   fn: ItemFn;
   id?: string;
+  reject: (reason?: unknown) => void;
 }
 
 interface StatsEntry {
@@ -56,8 +57,13 @@ export class TaskQueue {
   private waitPromises: Array<(stats: QueueStats) => void> = [];
 
   constructor({ rateLimit = 25, maxConcurrent = 100 }: QueueOptions = {}) {
-    this.rateLimitDelay = 1000 / rateLimit;
-    this.maxConcurrent = maxConcurrent;
+    const safeRateLimit = Number.isFinite(rateLimit) && rateLimit > 0 ? rateLimit : 25;
+    const safeMaxConcurrent = Number.isFinite(maxConcurrent) && maxConcurrent > 0
+      ? Math.floor(maxConcurrent)
+      : 100;
+
+    this.rateLimitDelay = 1000 / safeRateLimit;
+    this.maxConcurrent = safeMaxConcurrent;
   }
 
   public enqueue<T = any>(fn: ItemFn<T>, id?: string): Promise<T> {
@@ -74,6 +80,7 @@ export class TaskQueue {
     return new Promise<T>((resolve, reject) => {
       this.queue.push({
         id,
+        reject,
         fn: async () => {
           try {
             const result = await fn();
@@ -117,6 +124,11 @@ export class TaskQueue {
   }
 
   public clear(): void {
+    const cancellationError = new Error("Queue item cancelled before execution");
+    for (let i = this.head; i < this.queue.length; i++) {
+      this.queue[i]?.reject(cancellationError);
+    }
+
     this.queue = [];
     this.head = 0;
     if (this.runningCount === 0) this.triggerFinish();

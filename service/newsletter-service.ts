@@ -19,6 +19,31 @@ import {
 const log = logger.child({ service: "service:newsletter-service" })
 const PERSIST_FORMATTED_CONTENTS = shouldPersistNewsletterFormattedContents()
 const MAX_RECEIVE_COUNT = 3
+const DEFAULT_RATE_LIMIT = 20
+const DEFAULT_MAX_CONCURRENT = 100
+
+function getPositiveNumber(value: unknown, fallback: number) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function normalizeRecipientList(value: unknown) {
+    const values = Array.isArray(value) ? value : [value]
+    return values
+        .flatMap((item) => String(item || "").split(","))
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
+export function validateNewsletterMessage(message: MailgunMessage) {
+    if (!message || typeof message !== "object") throw new Error("Message body is empty or invalid.")
+    if (!String(message.from || "").trim()) throw new Error("from is required")
+    if (!normalizeRecipientList(message.to).length) throw new Error("to is required")
+    if (!String(message.subject || "").trim()) throw new Error("subject is required")
+    if (!String(message.html || "").trim() && !String(message.text || "").trim()) {
+        throw new Error("html or text content is required")
+    }
+}
 
 // ─── Public API ──────────────────────────────────────────────
 
@@ -26,7 +51,7 @@ const MAX_RECEIVE_COUNT = 3
  * Saves a newsletter batch to the DB and enqueues it to SQS for background processing.
  */
 export async function addNewsletterToQueue(message: MailgunMessage, siteId: string) {
-    if (!message) throw new Error("Message body is empty or invalid.")
+    validateNewsletterMessage(message)
 
     const { id } = await createNewsletterBatchEntry(siteId, message)
     const response = await sqsClient().send(new SendMessageCommand({
@@ -96,15 +121,15 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
 
     log.info({ emailCount: emails.length, emailBatchId }, "processing newsletter batch")
 
-    const rateLimit = Number(process.env.RATE_LIMIT) || 20
-    const maxConcurrent = Number(process.env.MAX_CONCURRENT) || 100
+    const rateLimit = getPositiveNumber(process.env.RATE_LIMIT, DEFAULT_RATE_LIMIT)
+    const maxConcurrent = getPositiveNumber(process.env.MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT)
     const queue = new TaskQueue({ rateLimit, maxConcurrent })
 
     for (const prepared of emails) {
-        queue.enqueue(
+        void queue.enqueue(
             () => sendSingleEmail(prepared, newsletterBatchId, siteId, emailBatchId),
             emailBatchId
-        )
+        ).catch(() => undefined)
     }
 
     const results = await queue.waitUntilFinished()

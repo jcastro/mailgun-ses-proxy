@@ -102,6 +102,38 @@ describe("TaskQueue Class", () => {
     expect(executedCount).toBe(1);
   });
 
+  it("clear() rejects queued items that never started", async () => {
+    const queue = new TaskQueue({ rateLimit: 1, maxConcurrent: 1 });
+
+    const first = queue.enqueue(async () => {
+      await sleep(30);
+      return "first";
+    });
+    const second = queue.enqueue(async () => "second");
+
+    await sleep(5);
+    queue.clear();
+
+    await expect(second).rejects.toThrow("Queue item cancelled before execution");
+    await expect(first).resolves.toBe("first");
+  });
+
+  it("falls back to safe defaults for invalid queue options", async () => {
+    const queue = new TaskQueue({ rateLimit: -1, maxConcurrent: -10 });
+
+    let completed = 0;
+    for (let i = 0; i < 3; i++) {
+      queue.enqueue(async () => {
+        completed++;
+      });
+    }
+
+    const stats = await queue.waitUntilFinished();
+
+    expect(completed).toBe(3);
+    expect(stats.settledCount).toBe(3);
+  });
+
   it("triggers onFinish listeners multiple times", async () => {
     const queue = new TaskQueue({ rateLimit: 1000, maxConcurrent: 10 });
     let finishCount = 0;
