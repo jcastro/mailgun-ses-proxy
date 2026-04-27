@@ -37,7 +37,22 @@ interface EventItem {
     type: string
     notificationId: string
     messageId: string
+    providerMessageId?: string
     toEmail: string
+    recipientDomain?: string
+    subject?: string
+    siteId?: string
+    batchId?: string
+    tags: string[]
+    severity?: string
+    reason?: string
+    url?: string
+    deliveryStatus?: {
+        code: number
+        message: string
+        description?: string
+        "enhanced-code"?: string | null
+    }
     timestamp: string
     created: string
 }
@@ -108,12 +123,19 @@ function EventsContent() {
         fetchData(1)
     }
 
-    const getBadgeVariant = (type: string) => {
-        switch (type) {
-            case "Delivery": return "success"
-            case "Bounce":
-            case "Complaint": return "destructive"
-            default: return "secondary"
+    const getBadgeVariant = (type: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" => {
+        switch (type.toLowerCase()) {
+            case "delivered":
+            case "opened":
+            case "clicked":
+                return "success"
+            case "failed":
+            case "complained":
+                return "destructive"
+            case "unsubscribed":
+                return "warning"
+            default:
+                return "secondary"
         }
     }
 
@@ -174,10 +196,11 @@ function EventsContent() {
                                         <div className="flex items-center">Type <SortIcon column="type" /></div>
                                     </TableHead>
                                     <TableHead>Recipient</TableHead>
+                                    <TableHead>Newsletter</TableHead>
+                                    <TableHead>Details</TableHead>
                                     <TableHead className="cursor-pointer select-none" onClick={() => handleSort("messageId")}>
-                                        <div className="flex items-center">Message ID <SortIcon column="messageId" /></div>
+                                        <div className="flex items-center">Provider ID <SortIcon column="messageId" /></div>
                                     </TableHead>
-                                    <TableHead>Notification ID</TableHead>
                                     <TableHead className="cursor-pointer select-none text-right" onClick={() => handleSort("timestamp")}>
                                         <div className="flex items-center justify-end">Timestamp <SortIcon column="timestamp" /></div>
                                     </TableHead>
@@ -190,13 +213,50 @@ function EventsContent() {
                                             <Badge variant={getBadgeVariant(event.type)}>
                                                 {event.type}
                                             </Badge>
+                                            {event.severity ? (
+                                                <div className="mt-1">
+                                                    <Badge variant="outline">{event.severity}</Badge>
+                                                </div>
+                                            ) : null}
                                         </TableCell>
-                                        <TableCell className="font-medium">{event.toEmail}</TableCell>
+                                        <TableCell className="max-w-[220px]">
+                                            <div className="truncate font-medium" title={event.toEmail}>
+                                                {event.toEmail}
+                                            </div>
+                                            {event.recipientDomain ? (
+                                                <div className="text-[10px] text-muted-foreground">{event.recipientDomain}</div>
+                                            ) : null}
+                                        </TableCell>
+                                        <TableCell className="max-w-[240px]">
+                                            <div className="truncate font-medium" title={event.subject || event.batchId || event.siteId}>
+                                                {event.subject || event.batchId || event.siteId || "Newsletter"}
+                                            </div>
+                                            <div className="flex flex-wrap gap-1">
+                                                {event.tags.slice(0, 3).map((tag) => (
+                                                    <Badge key={tag} variant="outline">{tag}</Badge>
+                                                ))}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="max-w-[320px]">
+                                            <div className="truncate text-xs" title={event.reason || event.deliveryStatus?.description || event.url || ""}>
+                                                {event.reason || event.deliveryStatus?.message || event.url || "Recorded by SES"}
+                                            </div>
+                                            {event.deliveryStatus ? (
+                                                <div className="text-[10px] text-muted-foreground">
+                                                    SMTP {event.deliveryStatus.code}
+                                                    {event.deliveryStatus["enhanced-code"] ? ` / ${event.deliveryStatus["enhanced-code"]}` : ""}
+                                                </div>
+                                            ) : event.url ? (
+                                                <div className="truncate text-[10px] text-muted-foreground" title={event.url}>
+                                                    {event.url}
+                                                </div>
+                                            ) : null}
+                                        </TableCell>
                                         <TableCell className="font-mono text-xs text-muted-foreground max-w-[150px] truncate" title={event.messageId}>
-                                            {event.messageId}
-                                        </TableCell>
-                                        <TableCell className="font-mono text-xs text-muted-foreground max-w-[150px] truncate" title={event.notificationId}>
-                                            {event.notificationId}
+                                            {event.providerMessageId || event.messageId}
+                                            <div className="text-[10px] text-muted-foreground truncate" title={event.notificationId}>
+                                                {event.notificationId}
+                                            </div>
                                         </TableCell>
                                         <TableCell 
                                             className="text-right text-xs text-muted-foreground whitespace-nowrap"
@@ -271,4 +331,3 @@ export default function EventsPage() {
         </Suspense>
     )
 }
-

@@ -2,6 +2,8 @@ import { EventsProps, QueryParams } from "@/types/default"
 import { prisma } from "../database/db"
 import { formatAsMailgunEvent } from "../../lib/core/aws-utils"
 
+const DEFAULT_GHOST_TAGS = new Set(["bulk-email", "ghost-email"])
+
 /**
  * Generates the "next" URL for Mailgun pagination.
  */
@@ -34,12 +36,23 @@ function parseLimit(value: string | null) {
     return Math.min(parsed, 1000)
 }
 
+function parseTagFilter(value: string | undefined) {
+    if (!value) return []
+
+    return value
+        .split(/\s+AND\s+|\s*,\s*/i)
+        .map((item) => item.trim())
+        .filter(Boolean)
+}
+
 /**
  * Retrieves events from the database and formats them for Mailgun API compatibility.
  */
 export async function getEmailEvents(params: EventsProps) {
     const skip = params.start || 0;
     const take = params.limit || 300;
+    const requestedTags = parseTagFilter(params.tags)
+    const customTags = requestedTags.filter((tag) => !DEFAULT_GHOST_TAGS.has(tag))
 
     // Handle Mailgun "OR" type filtering (e.g. "delivered OR opened")
     const types = params.type.match(/\s+OR\s+/i)
@@ -63,7 +76,14 @@ export async function getEmailEvents(params: EventsProps) {
         where: {
             type: { in: types },
             newsletter: { 
-                newsletterBatch: { siteId: params.siteId } 
+                newsletterBatch: {
+                    siteId: params.siteId,
+                    ...(customTags.length ? {
+                        AND: customTags.map((tag) => ({
+                            contents: { contains: tag },
+                        })),
+                    } : {}),
+                }
             },
             timestamp: timeRange,
         },
@@ -85,6 +105,7 @@ export function validateQueryParams(searchParams: URLSearchParams): QueryParams 
         start: parseOffset(searchParams.get("page") || searchParams.get("start")),
         limit: parseLimit(searchParams.get("limit")),
         event,
+        tags: searchParams.get("tags") || undefined,
         begin: parseUnixTimestamp(searchParams.get("begin"), 0),
         end: parseUnixTimestamp(searchParams.get("end"), now),
         order: ["1", "true", "yes"].includes(ascending) ? "asc" : "desc",
@@ -98,6 +119,7 @@ export async function fetchAnalyticsEvents(queryParams: QueryParams, siteId: str
     return getEmailEvents({
         siteId,
         type: queryParams.event,
+        tags: queryParams.tags,
         begin: queryParams.begin,
         end: queryParams.end,
         order: queryParams.order,

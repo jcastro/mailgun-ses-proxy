@@ -1,8 +1,14 @@
 import { prisma } from "@/lib/database"
 import { getSessionFromCookies } from "@/lib/dashboard/auth"
 import logger from "@/lib/core/logger"
+import { getMailgunMessageMetadata } from "@/lib/core/mailgun-metadata"
 
 const log = logger.child({ path: "dashboard/api/stats" })
+
+function percentage(value: number, total: number) {
+    if (total <= 0) return 0
+    return Number(((value / total) * 100).toFixed(1))
+}
 
 export async function GET() {
     try {
@@ -21,9 +27,7 @@ export async function GET() {
             totalBatches,
             totalMessages,
             totalErrors,
-            totalDelivered,
-            totalBounced,
-            totalComplaints,
+            eventCounts,
             messagesToday,
             messagesThisWeek,
             messagesThisMonth,
@@ -32,9 +36,10 @@ export async function GET() {
             prisma.newsletterBatch.count(),
             prisma.newsletterMessages.count(),
             prisma.newsletterErrors.count(),
-            prisma.newsletterNotifications.count({ where: { type: "delivered" } }),
-            prisma.newsletterNotifications.count({ where: { type: "failed" } }),
-            prisma.newsletterNotifications.count({ where: { type: "complained" } }),
+            prisma.newsletterNotifications.groupBy({
+                by: ["type"],
+                _count: { _all: true },
+            }),
             prisma.newsletterMessages.count({ where: { created: { gte: startOfToday } } }),
             prisma.newsletterMessages.count({ where: { created: { gte: startOfWeek } } }),
             prisma.newsletterMessages.count({ where: { created: { gte: startOfMonth } } }),
@@ -46,6 +51,7 @@ export async function GET() {
                     siteId: true,
                     batchId: true,
                     fromEmail: true,
+                    contents: true,
                     created: true,
                     _count: {
                         select: {
@@ -57,34 +63,57 @@ export async function GET() {
             }),
         ])
 
-        const deliveryRate = totalMessages > 0
-            ? ((totalDelivered / totalMessages) * 100).toFixed(1)
-            : "0.0"
+        const eventsByType = Object.fromEntries(
+            eventCounts.map((row) => [row.type, row._count._all])
+        ) as Record<string, number>
+        const totalAccepted = eventsByType.accepted || 0
+        const totalDelivered = eventsByType.delivered || 0
+        const totalOpened = eventsByType.opened || 0
+        const totalClicked = eventsByType.clicked || 0
+        const totalBounced = eventsByType.failed || 0
+        const totalUnsubscribed = eventsByType.unsubscribed || 0
+        const totalComplaints = eventsByType.complained || 0
 
         return Response.json({
             overview: {
                 totalBatches,
                 totalMessages,
                 totalErrors,
+                totalAccepted,
                 totalDelivered,
+                totalOpened,
+                totalClicked,
                 totalBounced,
+                totalUnsubscribed,
                 totalComplaints,
-                deliveryRate: parseFloat(deliveryRate),
+                deliveryRate: percentage(totalDelivered, totalMessages),
+                openRate: percentage(totalOpened, totalDelivered || totalMessages),
+                clickRate: percentage(totalClicked, totalDelivered || totalMessages),
+                bounceRate: percentage(totalBounced, totalMessages),
+                complaintRate: percentage(totalComplaints, totalMessages),
+                unsubscribeRate: percentage(totalUnsubscribed, totalDelivered || totalMessages),
+                sendErrorRate: percentage(totalErrors, totalMessages + totalErrors),
             },
             activity: {
                 today: messagesToday,
                 thisWeek: messagesThisWeek,
                 thisMonth: messagesThisMonth,
             },
-            recentBatches: recentBatches.map((b) => ({
-                id: b.id,
-                siteId: b.siteId,
-                batchId: b.batchId,
-                fromEmail: b.fromEmail,
-                created: b.created,
-                messageCount: b._count.NewslettersMessages,
-                errorCount: b._count.NewslettersErrors,
-            })),
+            recentBatches: recentBatches.map((b) => {
+                const metadata = getMailgunMessageMetadata(b.contents, b.fromEmail)
+
+                return {
+                    id: b.id,
+                    siteId: b.siteId,
+                    batchId: b.batchId,
+                    fromEmail: b.fromEmail,
+                    subject: metadata.subject,
+                    tags: metadata.tags,
+                    created: b.created,
+                    messageCount: b._count.NewslettersMessages,
+                    errorCount: b._count.NewslettersErrors,
+                }
+            }),
         })
     } catch (error) {
         log.error(error, "Stats API error")

@@ -36,6 +36,12 @@ interface Newsletter {
     siteId: string
     batchId: string
     fromEmail: string
+    subject?: string
+    tags: string[]
+    recipientCount: number
+    testMode: boolean
+    trackingOpens?: boolean
+    deliveryTime?: string
     created: string
     messageCount: number
     errorCount: number
@@ -142,14 +148,12 @@ export default function NewslettersPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="cursor-pointer select-none" onClick={() => handleSort("batchId")}>
-                                        <div className="flex items-center">Batch ID <SortIcon column="batchId" /></div>
-                                    </TableHead>
-                                    <TableHead className="cursor-pointer select-none" onClick={() => handleSort("siteId")}>
-                                        <div className="flex items-center">Site <SortIcon column="siteId" /></div>
+                                        <div className="flex items-center">Newsletter <SortIcon column="batchId" /></div>
                                     </TableHead>
                                     <TableHead className="cursor-pointer select-none" onClick={() => handleSort("fromEmail")}>
                                         <div className="flex items-center">From <SortIcon column="fromEmail" /></div>
                                     </TableHead>
+                                    <TableHead>Tags</TableHead>
                                     <TableHead className="text-center">Messages</TableHead>
                                     <TableHead className="text-center">Errors</TableHead>
                                     <TableHead className="cursor-pointer select-none text-right" onClick={() => handleSort("created")}>
@@ -164,11 +168,26 @@ export default function NewslettersPage() {
                                         className="cursor-pointer"
                                         onClick={() => router.push(`/dashboard/newsletters/${batch.id}`)}
                                     >
-                                        <TableCell className="font-mono text-xs text-muted-foreground">
-                                            {batch.batchId.length > 20 ? batch.batchId.slice(0, 20) + "…" : batch.batchId}
+                                        <TableCell className="max-w-[320px]">
+                                            <div className="truncate font-medium" title={batch.subject || batch.batchId}>
+                                                {batch.subject || "Untitled newsletter"}
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                                <span className="font-mono">
+                                                    {batch.batchId.length > 18 ? batch.batchId.slice(0, 18) + "..." : batch.batchId}
+                                                </span>
+                                                <span>{batch.siteId}</span>
+                                                {batch.testMode ? <Badge variant="outline">test</Badge> : null}
+                                            </div>
                                         </TableCell>
-                                        <TableCell className="font-medium">{batch.siteId}</TableCell>
                                         <TableCell className="max-w-[200px] truncate">{batch.fromEmail}</TableCell>
+                                        <TableCell className="max-w-[240px]">
+                                            <div className="flex flex-wrap gap-1">
+                                                {batch.tags.slice(0, 4).map((tag) => (
+                                                    <Badge key={tag} variant="outline">{tag}</Badge>
+                                                ))}
+                                            </div>
+                                        </TableCell>
                                         <TableCell className="text-center">
                                             <Badge variant="secondary">{batch.messageCount}</Badge>
                                         </TableCell>
@@ -240,4 +259,3 @@ export default function NewslettersPage() {
         </div>
     )
 }
-

@@ -73,9 +73,9 @@ On first login attempt, the system auto-creates:
 ## Features
 
 - **🔐 Authentication**: PBKDF2 password hashing + HMAC-SHA256 JWT sessions via HttpOnly cookies
-- **📊 Stats Overview**: Total batches, messages, errors, delivery rate, bounces, complaints, activity breakdown
-- **📬 Newsletters DataTable**: Paginated, sortable, searchable — click through to batch detail with messages & errors
-- **📡 Events DataTable**: Filter by event type (Delivery/Bounce/Complaint), search by message ID
+- **📊 Stats Overview**: Total batches, accepted messages, delivery/open/click rates, bounces, complaints, unsubscribes, send errors, and activity breakdown
+- **📬 Newsletters DataTable**: Paginated, sortable, searchable by id/site/from/subject/tag contents; click through to batch detail with message status, metrics, and errors
+- **📡 Events DataTable**: Filter by event type, search by message/notification id, and inspect normalized Mailgun fields from SES events
 - **⚙️ Settings**: Edit app configuration with DB/ENV source indicator and toggle support
 - **📱 Responsive**: Mobile-friendly with collapsible sidebar
 - **🎨 Dark UI**: Indigo accent palette, glassmorphism header, smooth micro-animations

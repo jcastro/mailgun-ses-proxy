@@ -5,7 +5,20 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn, formatRelativeTime } from "@/lib/utils"
-import { AlertCircle, ArrowUpRight, CheckCircle2, Inbox, Loader2, Mail, ShieldAlert, TrendingUp } from "lucide-react"
+import {
+    AlertCircle,
+    ArrowUpRight,
+    CheckCircle2,
+    Eye,
+    Inbox,
+    Loader2,
+    Mail,
+    MousePointerClick,
+    Send,
+    ShieldAlert,
+    TrendingUp,
+    UserMinus,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 
 interface StatsData {
@@ -13,10 +26,20 @@ interface StatsData {
         totalBatches: number
         totalMessages: number
         totalErrors: number
+        totalAccepted: number
         totalDelivered: number
+        totalOpened: number
+        totalClicked: number
         totalBounced: number
+        totalUnsubscribed: number
         totalComplaints: number
         deliveryRate: number
+        openRate: number
+        clickRate: number
+        bounceRate: number
+        complaintRate: number
+        unsubscribeRate: number
+        sendErrorRate: number
     }
     activity: {
         today: number
@@ -28,6 +51,8 @@ interface StatsData {
         siteId: string
         batchId: string
         fromEmail: string
+        subject?: string
+        tags: string[]
         created: string
         messageCount: number
         errorCount: number
@@ -77,32 +102,58 @@ export default function DashboardPage() {
             color: "text-primary",
         },
         {
-            label: "Messages Sent",
+            label: "Messages Accepted",
             value: stats.overview.totalMessages.toLocaleString(),
-            icon: Mail,
+            detail: `${stats.overview.totalAccepted.toLocaleString()} SES accepted events`,
+            icon: Send,
             color: "text-primary",
         },
         {
             label: "Delivery Rate",
             value: `${stats.overview.deliveryRate}%`,
+            detail: `${stats.overview.totalDelivered.toLocaleString()} delivered`,
             icon: CheckCircle2,
             color: "text-emerald-500",
         },
         {
-            label: "Total Errors",
+            label: "Open Rate",
+            value: `${stats.overview.openRate}%`,
+            detail: `${stats.overview.totalOpened.toLocaleString()} opens`,
+            icon: Eye,
+            color: "text-sky-500",
+        },
+        {
+            label: "Click Rate",
+            value: `${stats.overview.clickRate}%`,
+            detail: `${stats.overview.totalClicked.toLocaleString()} clicks`,
+            icon: MousePointerClick,
+            color: "text-violet-500",
+        },
+        {
+            label: "Send Errors",
             value: stats.overview.totalErrors.toLocaleString(),
+            detail: `${stats.overview.sendErrorRate}% of attempts`,
             icon: AlertCircle,
             color: "text-destructive",
         },
         {
             label: "Bounced",
             value: stats.overview.totalBounced.toLocaleString(),
+            detail: `${stats.overview.bounceRate}% bounce rate`,
             icon: ShieldAlert,
             color: "text-orange-500",
         },
         {
+            label: "Unsubscribed",
+            value: stats.overview.totalUnsubscribed.toLocaleString(),
+            detail: `${stats.overview.unsubscribeRate}% unsubscribe rate`,
+            icon: UserMinus,
+            color: "text-amber-500",
+        },
+        {
             label: "Complaints",
             value: stats.overview.totalComplaints.toLocaleString(),
+            detail: `${stats.overview.complaintRate}% complaint rate`,
             icon: TrendingUp,
             color: "text-destructive",
         },
@@ -116,7 +167,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Stat Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {statCards.map((card) => {
                     const Icon = card.icon
                     return (
@@ -129,6 +180,9 @@ export default function DashboardPage() {
                             </CardHeader>
                             <CardContent>
                                 <div className={cn("text-2xl font-bold", card.color)}>{card.value}</div>
+                                {"detail" in card && card.detail ? (
+                                    <div className="mt-1 text-xs text-muted-foreground">{card.detail}</div>
+                                ) : null}
                             </CardContent>
                         </Card>
                     )
@@ -191,9 +245,10 @@ export default function DashboardPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Batch ID</TableHead>
+                                    <TableHead>Newsletter</TableHead>
                                     <TableHead>Site</TableHead>
                                     <TableHead>From Email</TableHead>
+                                    <TableHead>Tags</TableHead>
                                     <TableHead className="text-center">Messages</TableHead>
                                     <TableHead className="text-center">Errors</TableHead>
                                     <TableHead className="text-right">Created</TableHead>
@@ -202,11 +257,23 @@ export default function DashboardPage() {
                             <TableBody>
                                 {stats.recentBatches.map((batch) => (
                                     <TableRow key={batch.id}>
-                                        <TableCell className="font-mono text-xs text-muted-foreground">
-                                            {batch.batchId.slice(0, 16)}…
+                                        <TableCell className="max-w-[260px]">
+                                            <div className="truncate font-medium" title={batch.subject || batch.batchId}>
+                                                {batch.subject || "Untitled newsletter"}
+                                            </div>
+                                            <div className="font-mono text-[10px] text-muted-foreground">
+                                                {batch.batchId.slice(0, 16)}...
+                                            </div>
                                         </TableCell>
                                         <TableCell className="font-medium">{batch.siteId}</TableCell>
                                         <TableCell className="max-w-[200px] truncate">{batch.fromEmail}</TableCell>
+                                        <TableCell className="max-w-[220px]">
+                                            <div className="flex flex-wrap gap-1">
+                                                {batch.tags.slice(0, 3).map((tag) => (
+                                                    <Badge key={tag} variant="outline">{tag}</Badge>
+                                                ))}
+                                            </div>
+                                        </TableCell>
                                         <TableCell className="text-center">
                                             <Badge variant="secondary">{batch.messageCount}</Badge>
                                         </TableCell>

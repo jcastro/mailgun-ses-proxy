@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/database"
 import { getSessionFromCookies } from "@/lib/dashboard/auth"
 import logger from "@/lib/core/logger"
+import { getMailgunMessageMetadata } from "@/lib/core/mailgun-metadata"
 import { NextRequest } from "next/server"
 
 const log = logger.child({ path: "dashboard/api/newsletters" })
+const SORT_FIELDS = new Set(["batchId", "siteId", "fromEmail", "created"])
 
 export async function GET(req: NextRequest) {
     try {
@@ -16,8 +18,9 @@ export async function GET(req: NextRequest) {
         const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
         const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20")))
         const search = searchParams.get("search") || ""
-        const sortBy = searchParams.get("sortBy") || "created"
-        const sortOrder = (searchParams.get("sortOrder") || "desc") as "asc" | "desc"
+        const requestedSortBy = searchParams.get("sortBy") || "created"
+        const sortBy = SORT_FIELDS.has(requestedSortBy) ? requestedSortBy : "created"
+        const sortOrder = searchParams.get("sortOrder") === "asc" ? "asc" : "desc"
 
         const where: Record<string, unknown> = {}
         if (search) {
@@ -25,6 +28,7 @@ export async function GET(req: NextRequest) {
                 { batchId: { contains: search } },
                 { siteId: { contains: search } },
                 { fromEmail: { contains: search } },
+                { contents: { contains: search } },
             ]
         }
 
@@ -40,6 +44,7 @@ export async function GET(req: NextRequest) {
                     siteId: true,
                     batchId: true,
                     fromEmail: true,
+                    contents: true,
                     created: true,
                     _count: {
                         select: {
@@ -52,15 +57,25 @@ export async function GET(req: NextRequest) {
         ])
 
         return Response.json({
-            data: batches.map((b) => ({
-                id: b.id,
-                siteId: b.siteId,
-                batchId: b.batchId,
-                fromEmail: b.fromEmail,
-                created: b.created,
-                messageCount: b._count.NewslettersMessages,
-                errorCount: b._count.NewslettersErrors,
-            })),
+            data: batches.map((b) => {
+                const metadata = getMailgunMessageMetadata(b.contents, b.fromEmail)
+
+                return {
+                    id: b.id,
+                    siteId: b.siteId,
+                    batchId: b.batchId,
+                    fromEmail: b.fromEmail,
+                    subject: metadata.subject,
+                    tags: metadata.tags,
+                    recipientCount: metadata.recipientCount,
+                    testMode: metadata.testMode,
+                    trackingOpens: metadata.trackingOpens,
+                    deliveryTime: metadata.deliveryTime,
+                    created: b.created,
+                    messageCount: b._count.NewslettersMessages,
+                    errorCount: b._count.NewslettersErrors,
+                }
+            }),
             pagination: {
                 page,
                 limit,

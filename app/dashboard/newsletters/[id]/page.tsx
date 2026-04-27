@@ -5,7 +5,21 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn, formatRelativeTime } from "@/lib/utils"
-import { AlertCircle, Calendar, CheckCircle2, ChevronLeft, Globe, Hash, Info, Loader2, Mail } from "lucide-react"
+import {
+    AlertCircle,
+    Calendar,
+    CheckCircle2,
+    ChevronLeft,
+    Eye,
+    Globe,
+    Hash,
+    Info,
+    Loader2,
+    Mail,
+    MousePointerClick,
+    ShieldAlert,
+    UserMinus,
+} from "lucide-react"
 import Link from "next/link"
 import { use, useCallback, useEffect, useState } from "react"
 
@@ -14,7 +28,30 @@ interface BatchDetail {
     siteId: string
     batchId: string
     fromEmail: string
+    subject?: string
+    tags: string[]
+    recipientCount: number
+    testMode: boolean
+    trackingOpens?: boolean
+    deliveryTime?: string
     created: string
+}
+
+interface Metrics {
+    totalMessages: number
+    totalErrors: number
+    totalDelivered: number
+    totalOpened: number
+    totalClicked: number
+    totalFailed: number
+    totalUnsubscribed: number
+    totalComplained: number
+    deliveryRate: number
+    openRate: number
+    clickRate: number
+    bounceRate: number
+    unsubscribeRate: number
+    complaintRate: number
 }
 
 interface Message {
@@ -22,6 +59,8 @@ interface Message {
     messageId: string
     toEmail: string
     created: string
+    latestEvent?: string
+    latestEventAt?: string
     eventCount: number
 }
 
@@ -40,9 +79,26 @@ interface Pagination {
     totalPages: number
 }
 
+function getEventBadgeVariant(type?: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" {
+    switch ((type || "").toLowerCase()) {
+        case "delivered":
+        case "opened":
+        case "clicked":
+            return "success"
+        case "failed":
+        case "complained":
+            return "destructive"
+        case "unsubscribed":
+            return "warning"
+        default:
+            return "secondary"
+    }
+}
+
 export default function NewsletterDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params)
     const [batch, setBatch] = useState<BatchDetail | null>(null)
+    const [metrics, setMetrics] = useState<Metrics | null>(null)
     const [messages, setMessages] = useState<Message[]>([])
     const [errors, setErrors] = useState<ErrorEntry[]>([])
     const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 })
@@ -56,6 +112,7 @@ export default function NewsletterDetailPage({ params }: { params: Promise<{ id:
                 const res = await fetch(`/dashboard/api/newsletters/${id}?page=${page}&limit=20`)
                 const json = await res.json()
                 setBatch(json.batch)
+                setMetrics(json.metrics || null)
                 setMessages(json.messages?.data || [])
                 setErrors(json.errors?.data || [])
                 setPagination(json.messages?.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 })
@@ -107,16 +164,25 @@ export default function NewsletterDetailPage({ params }: { params: Promise<{ id:
             </div>
 
             {/* Batch Info Header */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <Card className="border-muted/50 bg-card/50">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs font-medium uppercase text-muted-foreground flex items-center gap-2">
-                            <Hash className="h-3 w-3" /> Batch ID
+                            <Hash className="h-3 w-3" /> Newsletter
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-xs font-mono truncate" title={batch.batchId}>
+                        <div className="text-sm font-semibold truncate" title={batch.subject || batch.batchId}>
+                            {batch.subject || "Untitled newsletter"}
+                        </div>
+                        <div className="text-[10px] font-mono text-muted-foreground truncate" title={batch.batchId}>
                             {batch.batchId}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                            {batch.tags.slice(0, 4).map((tag) => (
+                                <Badge key={tag} variant="outline">{tag}</Badge>
+                            ))}
+                            {batch.testMode ? <Badge variant="outline">test</Badge> : null}
                         </div>
                     </CardContent>
                 </Card>
@@ -129,6 +195,9 @@ export default function NewsletterDetailPage({ params }: { params: Promise<{ id:
                     <CardContent>
                         <div className="text-sm font-semibold">{batch.siteId}</div>
                         <div className="text-[10px] text-muted-foreground truncate">{batch.fromEmail}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                            {batch.recipientCount.toLocaleString()} target recipients
+                        </div>
                     </CardContent>
                 </Card>
                 <Card className="border-muted/50 bg-card/50">
@@ -150,22 +219,51 @@ export default function NewsletterDetailPage({ params }: { params: Promise<{ id:
                             <Info className="h-3 w-3" /> Performance
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="flex items-center gap-3">
-                        <div className="flex flex-col">
-                            <span className="text-xs text-muted-foreground">Sent</span>
-                            <span className="text-sm font-bold text-emerald-500">{pagination.total}</span>
+                    <CardContent className="grid grid-cols-3 gap-3">
+                        <div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <CheckCircle2 className="h-3 w-3" /> Delivered
+                            </div>
+                            <div className="text-sm font-bold text-emerald-500">
+                                {metrics?.deliveryRate ?? 0}%
+                            </div>
                         </div>
-                        <div className="h-8 w-px bg-border" />
-                        <div className="flex flex-col">
-                            <span className="text-xs text-muted-foreground">Errors</span>
-                            <span
+                        <div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Eye className="h-3 w-3" /> Opens
+                            </div>
+                            <div className="text-sm font-bold text-sky-500">{metrics?.openRate ?? 0}%</div>
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <MousePointerClick className="h-3 w-3" /> Clicks
+                            </div>
+                            <div className="text-sm font-bold text-violet-500">{metrics?.clickRate ?? 0}%</div>
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <ShieldAlert className="h-3 w-3" /> Failed
+                            </div>
+                            <div className="text-sm font-bold text-orange-500">{metrics?.totalFailed ?? 0}</div>
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <UserMinus className="h-3 w-3" /> Subs
+                            </div>
+                            <div className="text-sm font-bold text-amber-500">{metrics?.totalUnsubscribed ?? 0}</div>
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <AlertCircle className="h-3 w-3" /> Errors
+                            </div>
+                            <div
                                 className={cn(
                                     "text-sm font-bold",
-                                    errors.length > 0 ? "text-destructive" : "text-muted-foreground",
+                                    (metrics?.totalErrors || 0) > 0 ? "text-destructive" : "text-muted-foreground",
                                 )}
                             >
-                                {errors.length}
-                            </span>
+                                {metrics?.totalErrors ?? errors.length}
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
@@ -229,10 +327,18 @@ export default function NewsletterDetailPage({ params }: { params: Promise<{ id:
                                                     <TableCell className="font-medium">{msg.toEmail}</TableCell>
                                                     <TableCell className="text-center">
                                                         <Link href={`/dashboard/events?search=${encodeURIComponent(msg.messageId)}`}>
-                                                            <Badge variant="secondary" className="hover:bg-secondary/80 cursor-pointer transition-colors">
-                                                                {msg.eventCount}
+                                                            <Badge
+                                                                variant={getEventBadgeVariant(msg.latestEvent)}
+                                                                className="cursor-pointer transition-colors"
+                                                            >
+                                                                {msg.latestEvent || `${msg.eventCount} events`}
                                                             </Badge>
                                                         </Link>
+                                                        {msg.latestEventAt ? (
+                                                            <div className="mt-1 text-[10px] text-muted-foreground">
+                                                                {formatRelativeTime(msg.latestEventAt)}
+                                                            </div>
+                                                        ) : null}
                                                     </TableCell>
                                                     <TableCell
                                                         className="text-right text-xs text-muted-foreground"

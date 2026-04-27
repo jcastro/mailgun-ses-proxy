@@ -146,6 +146,92 @@ describe("Mailgun event API regressions", () => {
         expect(result.items[0]["user-variables"]?.["email-id"]).toBe("ghost-email-id")
     })
 
+    it("formats SES notifications with the Mailgun fields Ghost analytics expects", async () => {
+        const { formatAsMailgunEvent } = await import("@/lib/core/aws-utils")
+
+        const result = formatAsMailgunEvent([{
+            id: "event-id",
+            type: "failed",
+            messageId: "ses-msg-bounce",
+            timestamp: new Date("2025-06-15T12:15:00Z"),
+            created: new Date("2025-06-15T12:16:00Z"),
+            rawEvent: JSON.stringify({
+                Type: "Notification",
+                Message: JSON.stringify({
+                    eventType: "Bounce",
+                    mail: {
+                        messageId: "ses-msg-bounce",
+                        timestamp: "2025-06-15T10:30:00Z",
+                        tags: {
+                            siteId: ["example.com"],
+                            batchId: ["ghost-email-id"],
+                            "ghost-email": ["true"],
+                            "mailgun-tag": ["ses-side-tag"],
+                        },
+                    },
+                    bounce: {
+                        timestamp: "2025-06-15T12:15:00Z",
+                        bounceType: "Permanent",
+                        bounceSubType: "General",
+                        bouncedRecipients: [{
+                            emailAddress: "reader@example.com",
+                            status: "5.1.1",
+                            diagnosticCode: "smtp; 550 5.1.1 user unknown",
+                        }],
+                    },
+                }),
+            }),
+            newsletter: {
+                toEmail: "reader@example.com",
+                newsletterBatch: {
+                    batchId: "ghost-email-id",
+                    fromEmail: "Example <noreply@example.com>",
+                    contents: JSON.stringify({
+                        from: "Example <noreply@example.com>",
+                        subject: "Important update",
+                        "o:tag": ["member-news", "launch"],
+                        "o:testmode": "true",
+                    }),
+                },
+            },
+        } as any], "https://proxy.example/v3/site/events?start=0")
+
+        const item = result.items[0]
+        expect(item).toMatchObject({
+            event: "failed",
+            severity: "permanent",
+            recipient: "reader@example.com",
+            "recipient-domain": "example.com",
+            "log-level": "error",
+            "user-variables": { "email-id": "ghost-email-id" },
+            message: {
+                headers: {
+                    "message-id": "ghost-email-id",
+                    "x-ses-message-id": "ses-msg-bounce",
+                    "subject": "Important update",
+                },
+            },
+            flags: {
+                "is-authenticated": true,
+                "is-test-mode": true,
+            },
+        })
+        expect(item.tags).toEqual(expect.arrayContaining([
+            "bulk-email",
+            "ghost-email",
+            "member-news",
+            "launch",
+            "ses-side-tag",
+        ]))
+        expect(item.tags).not.toContain("true")
+        expect(item.tags).not.toContain("example.com")
+        expect(item["delivery-status"]).toMatchObject({
+            code: 550,
+            description: "smtp; 550 5.1.1 user unknown",
+            "enhanced-code": "5.1.1",
+        })
+    })
+
     it("defaults to all Ghost-relevant Mailgun event types, including accepted and clicked", async () => {
         const { validateQueryParams } = await import("@/service/events-service/events-utils")
 

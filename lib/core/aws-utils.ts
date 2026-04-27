@@ -2,6 +2,15 @@ import { MailgunEvents, MailgunRecipientVariables } from "@/types/default"
 import { BulkEmailEntry, MessageHeader, SendBulkEmailRequest, SendEmailRequest } from "@aws-sdk/client-sesv2"
 import { Prisma } from "../generated"
 import { replaceAll } from "./common"
+import {
+    DEFAULT_MAILGUN_TAGS,
+    getMailgunTags,
+    parseStoredMailgunMessage,
+    type StoredMailgunMessage,
+} from "./mailgun-metadata"
+
+export { getMailgunTags, parseStoredMailgunMessage }
+export type { StoredMailgunMessage }
 
 type RecipientVariables = Partial<MailgunRecipientVariables[string]>
 type HeaderTemplate = { name: string, value: unknown }
@@ -306,7 +315,18 @@ export interface NotificationEvent {
 
 type SESEventPayload = {
     eventType: keyof typeof awsToMailgunType
-    mail: { messageId: string, timestamp?: string | Date }
+    mail: {
+        messageId: string
+        timestamp?: string | Date
+        tags?: Record<string, string[] | string>
+        commonHeaders?: {
+            from?: string[]
+            to?: string[]
+            subject?: string
+            messageId?: string
+        }
+        destination?: string[]
+    }
     send?: { timestamp?: string | Date }
     reject?: { timestamp?: string | Date, reason?: string }
     bounce?: {
@@ -367,6 +387,66 @@ function getEventTimestamp(event: SESEventPayload) {
         || event.mail.timestamp
 }
 
+function getRecipientDomain(recipient: string) {
+    const domain = recipient.split("@")[1]
+    return domain || undefined
+}
+
+function getRawSESTags(event: SESEventPayload | null) {
+    const tags = (event?.mail as any)?.tags
+    if (!tags || typeof tags !== "object") return []
+
+    return Object.entries(tags).flatMap(([name, value]) => {
+        const values = (Array.isArray(value) ? value : [value])
+            .map(String)
+            .filter(Boolean)
+
+        if (name === "mailgun-tag" || name === "mailgun-tags" || name === "tag") {
+            return values
+        }
+
+        if (DEFAULT_MAILGUN_TAGS.includes(name) && values.some((item) => item === "true" || item === "1")) {
+            return [name]
+        }
+
+        return []
+    })
+}
+
+function getEventTags(storedMessage: StoredMailgunMessage, event: SESEventPayload | null) {
+    return Array.from(new Set([
+        ...getMailgunTags(storedMessage),
+        ...getRawSESTags(event),
+    ]))
+}
+
+function getEventLogLevel(type: string) {
+    if (type === "failed" || type === "complained") return "error"
+    if (type === "unsubscribed") return "warn"
+    return "info"
+}
+
+function parseSmtpCode(value: unknown, fallback: number) {
+    const match = String(value || "").match(/\b([245]\d{2})\b/)
+    if (!match) return fallback
+
+    const parsed = Number(match[1])
+    return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function getBounceRecipient(event: SESEventPayload) {
+    return event.bounce?.bouncedRecipients?.[0]
+}
+
+function getDelayRecipient(event: SESEventPayload) {
+    return event.deliveryDelay?.delayedRecipients?.[0]
+}
+
+function truncateMailgunError(value: unknown, fallback: string) {
+    const message = String(value || fallback)
+    return message.slice(0, 2000)
+}
+
 export function parseNotificationEvent(messageId: string, inputEvent: string): NotificationEvent {
     const event = unwrapSnsEvent(inputEvent)
     const mailgunType = awsToMailgunType[event.eventType] || "unknown"
@@ -389,50 +469,93 @@ export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) 
         const eventTimestamp = (event.timestamp || event.created).getTime()
         const originalSESEvent = tryUnwrapSnsEvent(event.rawEvent)
         const eventType = originalSESEvent?.eventType
+        const storedMessage = parseStoredMailgunMessage(event.newsletter.newsletterBatch.contents)
         const emailId = event.newsletter.newsletterBatch.batchId
+        const recipient = event.newsletter.toEmail
+        const from = typeof storedMessage.from === "string"
+            ? storedMessage.from
+            : event.newsletter.newsletterBatch.fromEmail
+        const subject = typeof storedMessage.subject === "string" ? storedMessage.subject : undefined
         const out = {
             event: event.type,
             id: `${event.id}-${event.messageId}`,
+            "log-level": getEventLogLevel(event.type),
             timestamp: Math.floor(eventTimestamp / 1000),
-            recipient: event.newsletter.toEmail,
+            recipient,
+            "recipient-domain": getRecipientDomain(recipient),
+            tags: getEventTags(storedMessage, originalSESEvent),
+            campaigns: [],
+            envelope: {
+                sender: from,
+                transport: "ses",
+                targets: recipient,
+            },
+            flags: {
+                "is-routed": false,
+                "is-authenticated": true,
+                "is-system-test": false,
+                "is-test-mode": storedMessage["o:testmode"] === true || storedMessage["o:testmode"] === "true",
+            },
             "user-variables": {
                 "email-id": emailId,
             },
             message: {
+                attachments: [],
                 headers: {
                     "message-id": emailId,
-                    "to": event.newsletter.toEmail
+                    "x-ses-message-id": event.messageId,
+                    "to": recipient,
+                    "from": from,
+                    ...(subject ? { "subject": subject } : {}),
                 },
             },
         } as MailgunEvents
 
+        if (originalSESEvent && eventType == "Delivery") {
+            out["delivery-status"] = {
+                code: parseSmtpCode(originalSESEvent.delivery?.smtpResponse, 250),
+                message: originalSESEvent.delivery?.smtpResponse || "Delivered",
+                description: originalSESEvent.delivery?.smtpResponse || "Delivered",
+                "enhanced-code": null,
+            }
+        }
+
         if (originalSESEvent && eventType == "Bounce") {
             const isTransientBounce = originalSESEvent.bounce?.bounceType === "Transient"
+            const bounceRecipient = getBounceRecipient(originalSESEvent)
+            const diagnostic = bounceRecipient?.diagnosticCode || originalSESEvent.bounce?.bounceSubType || originalSESEvent.bounce?.bounceType
             out["severity"] = isTransientBounce ? "temporary" : "permanent"
             out["reason"] = isTransientBounce ? "temporary-bounce" : "suppress-bounce"
             out["delivery-status"] = {
-                code: isTransientBounce ? 400 : 605,
-                message: originalSESEvent.bounce?.bounceType || (isTransientBounce ? "Temporary bounce" : "Permanent bounce"),
-                "enhanced-code": originalSESEvent.bounce?.bouncedRecipients?.[0]?.status || null,
+                code: parseSmtpCode(bounceRecipient?.diagnosticCode || bounceRecipient?.status, isTransientBounce ? 400 : 605),
+                message: truncateMailgunError(diagnostic, isTransientBounce ? "Temporary bounce" : "Permanent bounce"),
+                description: truncateMailgunError(diagnostic, isTransientBounce ? "Temporary bounce" : "Permanent bounce"),
+                "enhanced-code": bounceRecipient?.status || null,
+                "attempt-no": 1,
             }
         }
 
         if (originalSESEvent && eventType == "DeliveryDelay") {
+            const delayRecipient = getDelayRecipient(originalSESEvent)
             out["severity"] = "temporary"
             out["reason"] = originalSESEvent.deliveryDelay?.delayType || "delivery-delay"
             out["delivery-status"] = {
-                code: 400,
+                code: parseSmtpCode(delayRecipient?.status, 400),
                 message: originalSESEvent.deliveryDelay?.delayType || "Delivery delayed",
-                "enhanced-code": originalSESEvent.deliveryDelay?.delayedRecipients?.[0]?.status || null,
+                description: originalSESEvent.deliveryDelay?.delayType || "Delivery delayed",
+                "enhanced-code": delayRecipient?.status || null,
+                "attempt-no": 1,
             }
         }
 
         if (originalSESEvent && (eventType == "Reject" || eventType == "RenderingFailure")) {
+            const errorMessage = originalSESEvent.reject?.reason || originalSESEvent.failure?.errorMessage || "Rejected"
             out["severity"] = "permanent"
-            out["reason"] = originalSESEvent.reject?.reason || originalSESEvent.failure?.errorMessage || "rejected"
+            out["reason"] = errorMessage
             out["delivery-status"] = {
                 code: 550,
-                message: originalSESEvent.reject?.reason || originalSESEvent.failure?.errorMessage || "Rejected",
+                message: truncateMailgunError(errorMessage, "Rejected"),
+                description: truncateMailgunError(errorMessage, "Rejected"),
                 "enhanced-code": null,
             }
         }
@@ -440,6 +563,11 @@ export function formatAsMailgunEvent(event: MailgunEventPayload[], url: string) 
         if (originalSESEvent && eventType == "Complaint") {
             out["severity"] = "permanent"
             out["reason"] = originalSESEvent.complaint?.complaintFeedbackType || "complained"
+        }
+
+        if (originalSESEvent && eventType == "Subscription") {
+            out["severity"] = "permanent"
+            out["reason"] = originalSESEvent.subscription?.topicName || "unsubscribed"
         }
 
         if (originalSESEvent && eventType == "Click" && originalSESEvent.click?.link) {

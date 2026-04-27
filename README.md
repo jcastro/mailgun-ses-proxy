@@ -22,6 +22,7 @@ Ghost natively integrates with Mailgun for bulk newsletter delivery and analytic
 - **Event Tracking**: Converts SES events to Mailgun-compatible `delivered`, `opened`, `failed`, `complained`, `unsubscribed`, and `clicked` events
 - **Suppression Compatibility**: Acknowledges Ghost's Mailgun suppression cleanup calls
 - **Database Logging**: Stores email batches, messages, and events in MySQL database
+- **Dashboard Analytics**: Shows delivery, open, click, bounce, complaint, unsubscribe, and send-error metrics from stored SES/Mailgun-compatible events
 - **Health Monitoring**: Built-in health check endpoints for monitoring
 - **Docker First**: Designed to run from a published Docker image
 
@@ -223,6 +224,18 @@ The proxy supports the Mailgun parameters Ghost sends:
 - `o:tag`, `o:tracking-opens`
 
 Unsupported Mailgun features are ignored where Ghost does not require them.
+
+### Mailgun-Compatible Events
+
+The events endpoint supports the query shape Ghost uses with Mailgun:
+
+- `event=delivered OR opened OR failed OR unsubscribed OR complained`
+- `begin` and `end` as Unix timestamps
+- `limit`, `page` or `start`
+- `ascending=yes`
+- `tags=bulk-email AND my-newsletter-tag`
+
+Returned events include Ghost/Mailgun fields such as `user-variables.email-id`, `message.headers.message-id`, `delivery-status`, `severity`, `reason`, `recipient-domain`, `tags`, click URL, and client info where SES provides it. The Mailgun `message-id` stays aligned with Ghost's stored batch provider id; the SES message id is exposed separately as `x-ses-message-id`.
 
 ### Large Newsletter Batches
 
