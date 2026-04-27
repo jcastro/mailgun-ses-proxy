@@ -62,6 +62,52 @@ describe("Performance regressions", () => {
         expect(durationMs).toBeLessThan(1500)
     })
 
+    it("can prepare SES bulk requests for 5000 recipients with 100 API calls", async () => {
+        vi.resetModules()
+        vi.stubEnv("NEWSLETTER_CONFIGURATION_SET_NAME", "newsletter-config-set")
+        const { prepareBulkEmailRequest, preparePayloadIterator } = await import("@/lib/core/aws-utils")
+
+        const recipients = Array.from({ length: 5000 }, (_, i) => `reader-${i}@example.com`)
+        const recipientVariables = Object.fromEntries(
+            recipients.map((email, i) => [email, {
+                name: `Reader ${i}`,
+                unsubscribe_url: `https://example.com/unsubscribe/${i}`,
+            }])
+        )
+        const input = {
+            to: recipients,
+            from: "Example <noreply@example.com>",
+            subject: "Hello %recipient.name%",
+            html: "<p>%recipient.unsubscribe_url%</p>",
+            text: "Hello %recipient.name%",
+            "h:List-Unsubscribe": "<%recipient.unsubscribe_url%>",
+            "recipient-variables": recipientVariables,
+            "v:email-id": "ghost-email-id",
+        }
+        const started = performance.now()
+        let apiCalls = 0
+        let batch: any[] = []
+
+        for (const payload of preparePayloadIterator(input, "example.com")) {
+            batch.push(payload)
+            if (batch.length === 50) {
+                expect(prepareBulkEmailRequest(input, batch)?.BulkEmailEntries).toHaveLength(50)
+                apiCalls++
+                batch = []
+            }
+        }
+
+        if (batch.length) {
+            expect(prepareBulkEmailRequest(input, batch)?.BulkEmailEntries).toHaveLength(batch.length)
+            apiCalls++
+        }
+
+        const durationMs = performance.now() - started
+
+        expect(apiCalls).toBe(100)
+        expect(durationMs).toBeLessThan(3000)
+    })
+
     it("formats large SES event pages fast enough for Ghost polling", async () => {
         vi.resetModules()
         const { formatAsMailgunEvent } = await import("@/lib/core/aws-utils")

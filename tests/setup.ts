@@ -10,11 +10,18 @@ vi.stubEnv('LOG_LEVEL', 'silent')
 // Mock AWS SDK
 vi.mock('@aws-sdk/client-sesv2', () => ({
   SendEmailCommand: vi.fn(),
+  SendBulkEmailCommand: vi.fn(),
 }))
 
 vi.mock('@aws-sdk/client-sqs', () => ({
   SendMessageCommand: vi.fn(),
   DeleteMessageCommand: vi.fn(),
+  DeleteMessageBatchCommand: vi.fn(),
+  ReceiveMessageCommand: vi.fn(),
+  MessageSystemAttributeName: {
+    ApproximateReceiveCount: 'ApproximateReceiveCount',
+    SentTimestamp: 'SentTimestamp',
+  },
 }))
 
 // Mock Prisma

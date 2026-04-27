@@ -82,6 +82,7 @@ describe("Newsletter service regressions", () => {
     it("loads sent recipients once per batch and skips already sent or duplicate recipients", async () => {
         vi.stubEnv("RATE_LIMIT", "1000000")
         vi.stubEnv("MAX_CONCURRENT", "5000")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "false")
 
         const {
             service,
@@ -124,6 +125,64 @@ describe("Newsletter service regressions", () => {
         expect(createNewsletterEntry.mock.calls.map(call => call[2]).sort()).toEqual([
             "new@example.com",
             "other@example.com",
+        ])
+    })
+
+    it("uses SES bulk sends for compatible newsletter batches while preserving per-recipient message ids", async () => {
+        vi.stubEnv("RATE_LIMIT", "1000000")
+        vi.stubEnv("MAX_CONCURRENT", "5000")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "true")
+        vi.stubEnv("SES_BULK_SEND_SIZE", "50")
+
+        const {
+            service,
+            createNewsletterEntry,
+            getNewsletterContent,
+            sesSend,
+        } = await loadNewsletterService()
+
+        getNewsletterContent.mockResolvedValue({
+            from: "newsletter@example.com",
+            to: [
+                "reader-1@example.com",
+                "reader-2@example.com",
+                "reader-3@example.com",
+            ],
+            subject: "Hello %recipient.name%",
+            html: "<p>Hello %recipient.name%</p>",
+            "h:List-Unsubscribe": "<%recipient.list_unsubscribe%>",
+            "h:List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "recipient-variables": {
+                "reader-1@example.com": { name: "One", list_unsubscribe: "https://example.com/u/1" },
+                "reader-2@example.com": { name: "Two", list_unsubscribe: "https://example.com/u/2" },
+                "reader-3@example.com": { name: "Three", list_unsubscribe: "https://example.com/u/3" },
+            },
+            "v:email-id": "ghost-email-id",
+        })
+        sesSend.mockResolvedValue({
+            BulkEmailEntryResults: [
+                { Status: "SUCCESS", MessageId: "ses-bulk-1" },
+                { Status: "SUCCESS", MessageId: "ses-bulk-2" },
+                { Status: "SUCCESS", MessageId: "ses-bulk-3" },
+            ],
+        })
+
+        await service.validateAndSend({
+            Body: "newsletter-batch-db-id",
+            ReceiptHandle: "receipt-handle",
+            MessageAttributes: {
+                siteId: { StringValue: "site-123", DataType: "String" },
+                from: { StringValue: "newsletter@example.com", DataType: "String" },
+            },
+            Attributes: { ApproximateReceiveCount: "1" },
+        } as any)
+
+        expect(sesSend).toHaveBeenCalledTimes(1)
+        expect(createNewsletterEntry).toHaveBeenCalledTimes(3)
+        expect(createNewsletterEntry.mock.calls.map(call => call[0])).toEqual([
+            "ses-bulk-1",
+            "ses-bulk-2",
+            "ses-bulk-3",
         ])
     })
 })

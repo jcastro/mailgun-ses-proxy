@@ -6,6 +6,7 @@ export type ItemFn<T = any> = () => Promise<T>;
 interface ItemWrapper {
   fn: ItemFn;
   id?: string;
+  weight: number;
   reject: (reason?: unknown) => void;
 }
 
@@ -66,7 +67,7 @@ export class TaskQueue {
     this.maxConcurrent = safeMaxConcurrent;
   }
 
-  public enqueue<T = any>(fn: ItemFn<T>, id?: string): Promise<T> {
+  public enqueue<T = any>(fn: ItemFn<T>, id?: string, weight = 1): Promise<T> {
     if (this.startTime === null) {
       this.startTime = performance.now();
       this.settledCount = 0;
@@ -80,6 +81,7 @@ export class TaskQueue {
     return new Promise<T>((resolve, reject) => {
       this.queue.push({
         id,
+        weight: Number.isFinite(weight) && weight > 0 ? weight : 1,
         reject,
         fn: async () => {
           try {
@@ -149,8 +151,9 @@ export class TaskQueue {
 
       this.executeTask(item);
 
-      if (this.rateLimitDelay > 0) {
-        await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+      const delayMs = this.rateLimitDelay * item.weight;
+      if (delayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
 
       // Periodic memory cleanup for very large queues

@@ -48,9 +48,14 @@ For newsletter batches around 5,000 recipients or more, tune these values to mat
 RATE_LIMIT=20
 MAX_CONCURRENT=100
 NEWSLETTER_VISIBILITY_TIMEOUT=1800
+SES_BULK_SEND_ENABLED=true
+SES_BULK_SEND_SIZE=50
+SQS_EVENT_RECEIVE_BATCH_SIZE=10
 ```
 
 `RATE_LIMIT` should not exceed the SES maximum send rate. `NEWSLETTER_VISIBILITY_TIMEOUT` must be longer than the time needed to send one batch; otherwise SQS may redeliver the same batch while it is still running.
+
+When `SES_BULK_SEND_ENABLED` is enabled, compatible Ghost newsletter payloads are sent through SES bulk requests. Rate limiting is still counted by recipient, not by API request, so `RATE_LIMIT=20` remains 20 recipients per second even when `SES_BULK_SEND_SIZE=50`.
 
 ## Healthcheck
 

@@ -127,9 +127,9 @@ describe('Issue 3: sendMail null content handling', () => {
 })
 
 // ============================================================
-// Issue 4: Invalid messages should be deleted from SQS (newsletter-service.ts)
+// Issue 4: Invalid messages should be marked for deletion by the SQS worker (newsletter-service.ts)
 // ============================================================
-describe('Issue 4: Invalid messages deleted from SQS', () => {
+describe('Issue 4: Invalid messages marked for SQS deletion', () => {
   beforeEach(() => {
     vi.resetModules()
   })
@@ -138,6 +138,7 @@ describe('Issue 4: Invalid messages deleted from SQS', () => {
     const mockSqsSend = vi.fn().mockResolvedValue({})
     vi.doMock('@aws-sdk/client-sesv2', () => ({
       SendEmailCommand: vi.fn(),
+      SendBulkEmailCommand: vi.fn(),
     }))
     vi.doMock('@/service/aws/awsHelper', () => ({
       sqsClient: () => ({ send: mockSqsSend }),
@@ -167,16 +168,18 @@ describe('Issue 4: Invalid messages deleted from SQS', () => {
       // Missing MessageAttributes
     } as any
 
-    await validateAndSend(message)
+    const result = await validateAndSend(message)
 
-    // Message should have been deleted from SQS despite being invalid
-    expect(mockSqsSend).toHaveBeenCalled()
+    // The worker deletes invalid messages after the handler marks them as safe to discard.
+    expect(result).toBe('delete')
+    expect(mockSqsSend).not.toHaveBeenCalled()
   })
 
   it('should delete message with missing siteId attribute from SQS', async () => {
     const mockSqsSend = vi.fn().mockResolvedValue({})
     vi.doMock('@aws-sdk/client-sesv2', () => ({
       SendEmailCommand: vi.fn(),
+      SendBulkEmailCommand: vi.fn(),
     }))
     vi.doMock('@/service/aws/awsHelper', () => ({
       sqsClient: () => ({ send: mockSqsSend }),
@@ -209,8 +212,9 @@ describe('Issue 4: Invalid messages deleted from SQS', () => {
       },
     } as any
 
-    await validateAndSend(message)
-    expect(mockSqsSend).toHaveBeenCalled()
+    const result = await validateAndSend(message)
+    expect(result).toBe('delete')
+    expect(mockSqsSend).not.toHaveBeenCalled()
   })
 })
 

@@ -70,6 +70,57 @@ describe("Ghost/Mailgun payload compatibility regressions", () => {
         })
         expect(headers).not.toContainEqual(expect.objectContaining({ Name: "Bad Header" }))
     })
+
+    it("builds SES bulk requests with Mailgun recipient variables and per-recipient headers", async () => {
+        const { preparePayload, prepareBulkEmailRequest } = await import("@/lib/core/aws-utils")
+        const input = {
+            to: ["reader-one@example.com", "reader-two@example.com"],
+            from: "Example <noreply@example.com>",
+            subject: "Hello %recipient.name%",
+            html: "<p>%recipient.unsubscribe_url%</p>",
+            text: "Hello %recipient.name%",
+            "h:List-Unsubscribe": "<%recipient.unsubscribe_url%>",
+            "h:List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "recipient-variables": {
+                "reader-one@example.com": { name: "One", unsubscribe_url: "https://example.com/u/1" },
+                "reader-two@example.com": { name: "Two", unsubscribe_url: "https://example.com/u/2" },
+            },
+            "v:email-id": "ghost-email-id",
+        }
+
+        const payloads = preparePayload(input, "example.com")
+        const request = prepareBulkEmailRequest(input, payloads)
+
+        expect(request?.DefaultContent.Template?.TemplateContent).toMatchObject({
+            Subject: "Hello {{name}}",
+            Html: "<p>{{unsubscribe_url}}</p>",
+            Text: "Hello {{name}}",
+        })
+        expect(request?.BulkEmailEntries).toHaveLength(2)
+        expect(request?.BulkEmailEntries?.[0].ReplacementEmailContent?.ReplacementTemplate?.ReplacementTemplateData).toBe(JSON.stringify({
+            name: "One",
+            unsubscribe_url: "https://example.com/u/1",
+        }))
+        expect(request?.BulkEmailEntries?.[1].ReplacementHeaders).toContainEqual({
+            Name: "List-Unsubscribe",
+            Value: "<https://example.com/u/2>",
+        })
+    })
+
+    it("does not build SES bulk requests for unsafe inline template syntax", async () => {
+        const { canPrepareBulkPayload, prepareBulkEmailRequest, preparePayload } = await import("@/lib/core/aws-utils")
+        const input = {
+            to: ["reader@example.com"],
+            from: "Example <noreply@example.com>",
+            subject: "Hello {{existing_template}}",
+            html: "<p>Hello</p>",
+            text: "Hello",
+            "v:email-id": "ghost-email-id",
+        }
+
+        expect(canPrepareBulkPayload(input)).toBe(false)
+        expect(prepareBulkEmailRequest(input, preparePayload(input, "example.com"))).toBeNull()
+    })
 })
 
 describe("Mailgun event API regressions", () => {

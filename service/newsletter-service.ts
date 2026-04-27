@@ -1,9 +1,14 @@
 import { TaskQueue } from "@/lib/task-queue"
 import { MailgunMessage } from "@/types/mailgun"
-import { SendEmailCommand } from "@aws-sdk/client-sesv2"
-import { DeleteMessageCommand, Message, SendMessageCommand } from "@aws-sdk/client-sqs"
+import { SendBulkEmailCommand, SendEmailCommand } from "@aws-sdk/client-sesv2"
+import { Message, SendMessageCommand } from "@aws-sdk/client-sqs"
 import { randomUUID } from "node:crypto"
-import { PreparedEmail, preparePayloadIterator } from "../lib/core/aws-utils"
+import {
+    canPrepareBulkPayload,
+    PreparedEmail,
+    prepareBulkEmailRequest,
+    preparePayloadIterator,
+} from "../lib/core/aws-utils"
 import { safeStringify } from "../lib/core/common"
 import logger from "../lib/core/logger"
 import { QUEUE_URL, sesNewsletterClient, sqsClient } from "./aws/awsHelper"
@@ -21,10 +26,25 @@ const PERSIST_FORMATTED_CONTENTS = shouldPersistNewsletterFormattedContents()
 const MAX_RECEIVE_COUNT = 3
 const DEFAULT_RATE_LIMIT = 20
 const DEFAULT_MAX_CONCURRENT = 100
+const DEFAULT_BULK_SEND_SIZE = 50
 
 function getPositiveNumber(value: unknown, fallback: number) {
     const parsed = Number(value)
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function getBoolean(value: unknown, fallback: boolean) {
+    if (value === undefined || value === null || value === "") return fallback
+    const normalized = String(value).trim().toLowerCase()
+    if (["1", "true", "yes", "on"].includes(normalized)) return true
+    if (["0", "false", "no", "off"].includes(normalized)) return false
+    return fallback
+}
+
+function getBulkSendSize(value: unknown) {
+    const parsed = Math.floor(Number(value))
+    if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_BULK_SEND_SIZE
+    return Math.min(50, parsed)
 }
 
 function normalizeRecipientList(value: unknown) {
@@ -47,6 +67,15 @@ export function validateNewsletterMessage(message: MailgunMessage) {
 
 function getPreparedToEmail(prepared: PreparedEmail) {
     return prepared.request.Destination?.ToAddresses?.join() || ""
+}
+
+function getPreparedRecipientData(prepared: PreparedEmail) {
+    const toEmail = getPreparedToEmail(prepared)
+    return {
+        toEmail,
+        recipientData: JSON.stringify({ toEmail, variables: prepared.recipientVariables }),
+        formattedContents: PERSIST_FORMATTED_CONTENTS ? safeStringify(prepared.request) : "",
+    }
 }
 
 // ─── Public API ──────────────────────────────────────────────
@@ -87,24 +116,23 @@ export async function validateAndSend(message: Message) {
 
     if (!batchId || !siteId || !from) {
         log.error({ message: safeStringify(message) }, "invalid or incomplete SQS message, discarding")
-        await deleteFromQueue(message.ReceiptHandle)
-        return
+        return "delete" as const
     }
 
     const receiveCount = parseInt(message.Attributes?.ApproximateReceiveCount || "0")
     if (receiveCount > MAX_RECEIVE_COUNT) {
         log.error({ batchId, receiveCount }, "batch exceeded max retries, discarding")
-        await deleteFromQueue(message.ReceiptHandle)
-        return
+        return "delete" as const
     }
 
     try {
         await processBatch(siteId, batchId)
-        await deleteFromQueue(message.ReceiptHandle)
+        return "delete" as const
     } catch (e) {
         // Leave the message in SQS — it will be re-delivered after the visibility timeout.
         // On retry, already-sent recipients are skipped via the idempotency check.
         log.error({ err: e, batchId, receiveCount }, "batch processing failed, will retry")
+        return "retry" as const
     }
 }
 
@@ -124,11 +152,26 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
     const alreadyQueuedOrSent = await getNewsletterSentRecipients(newsletterBatchId)
     const rateLimit = getPositiveNumber(process.env.RATE_LIMIT, DEFAULT_RATE_LIMIT)
     const maxConcurrent = getPositiveNumber(process.env.MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT)
+    const bulkEnabled = getBoolean(process.env.SES_BULK_SEND_ENABLED, true) && canPrepareBulkPayload(contents)
+    const bulkSendSize = bulkEnabled ? getBulkSendSize(process.env.SES_BULK_SEND_SIZE) : 1
     const queue = new TaskQueue({ rateLimit, maxConcurrent })
 
     let queuedCount = 0
     let skippedCount = 0
     let emailCount = 0
+    let pendingBulkBatch: PreparedEmail[] = []
+
+    const enqueuePreparedBatch = (batch: PreparedEmail[]) => {
+        if (!batch.length) return
+
+        const batchToSend = batch.slice()
+        queuedCount += batchToSend.length
+        void queue.enqueue(
+            () => sendPreparedBatch(contents, batchToSend, newsletterBatchId, siteId, emailBatchId, bulkEnabled),
+            emailBatchId,
+            batchToSend.length
+        ).catch(() => undefined)
+    }
 
     for (const prepared of preparePayloadIterator(contents, siteId)) {
         emailCount++
@@ -139,17 +182,26 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         }
 
         alreadyQueuedOrSent.add(toEmail)
-        queuedCount++
-        void queue.enqueue(
-            () => sendSingleEmail(prepared, newsletterBatchId, siteId, emailBatchId),
-            emailBatchId
-        ).catch(() => undefined)
+
+        if (bulkSendSize > 1) {
+            pendingBulkBatch.push(prepared)
+            if (pendingBulkBatch.length >= bulkSendSize) {
+                enqueuePreparedBatch(pendingBulkBatch)
+                pendingBulkBatch = []
+            }
+        } else {
+            enqueuePreparedBatch([prepared])
+        }
     }
+
+    enqueuePreparedBatch(pendingBulkBatch)
 
     log.info({
         emailCount,
         queuedCount,
         skippedCount,
+        bulkEnabled,
+        bulkSendSize,
         emailBatchId
     }, "processing newsletter batch")
 
@@ -166,7 +218,96 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
     }
 }
 
-// ─── Internal: Single Email ──────────────────────────────────
+// ─── Internal: SES Send Helpers ──────────────────────────────
+
+async function sendPreparedBatch(
+    contents: MailgunMessage,
+    batch: PreparedEmail[],
+    newsletterBatchId: string,
+    siteId: string,
+    emailBatchId: string,
+    bulkEnabled: boolean
+) {
+    if (bulkEnabled && batch.length > 1) {
+        await sendBulkEmailBatch(contents, batch, newsletterBatchId, siteId, emailBatchId)
+        return
+    }
+
+    for (const prepared of batch) {
+        await sendSingleEmail(prepared, newsletterBatchId, siteId, emailBatchId)
+    }
+}
+
+async function recordNewsletterSuccess(
+    prepared: PreparedEmail,
+    messageId: string,
+    newsletterBatchId: string,
+    siteId: string
+) {
+    const { toEmail, recipientData, formattedContents } = getPreparedRecipientData(prepared)
+    await createNewsletterEntry(messageId, newsletterBatchId, toEmail, recipientData, formattedContents)
+    log.info({ messageId, toEmail, siteId }, "email sent")
+}
+
+async function recordNewsletterFailure(
+    prepared: PreparedEmail,
+    error: unknown,
+    emailBatchId: string,
+    siteId: string
+) {
+    const errorId = randomUUID()
+    const { toEmail, recipientData, formattedContents } = getPreparedRecipientData(prepared)
+    log.error({ err: error, errorId, toEmail, siteId }, "SES send failed")
+    await createNewsletterErrorEntry(errorId, String(error), emailBatchId, toEmail, recipientData, formattedContents)
+}
+
+async function sendBulkEmailBatch(
+    contents: MailgunMessage,
+    batch: PreparedEmail[],
+    newsletterBatchId: string,
+    siteId: string,
+    emailBatchId: string
+) {
+    const request = prepareBulkEmailRequest(contents, batch)
+    if (!request) {
+        throw new Error("Bulk SES request could not be prepared")
+    }
+
+    try {
+        const response = await sesNewsletterClient().send(new SendBulkEmailCommand(request))
+        const results = response.BulkEmailEntryResults || []
+        let failedCount = 0
+
+        for (let index = 0; index < batch.length; index++) {
+            const prepared = batch[index]
+            const result = results[index]
+
+            if (result?.Status === "SUCCESS" && result.MessageId) {
+                await recordNewsletterSuccess(prepared, result.MessageId, newsletterBatchId, siteId)
+                continue
+            }
+
+            failedCount++
+            await recordNewsletterFailure(
+                prepared,
+                result?.Error || result?.Status || "Unknown SES bulk send failure",
+                emailBatchId,
+                siteId
+            )
+        }
+
+        if (failedCount > 0) {
+            throw new Error(`${failedCount}/${batch.length} SES bulk recipients failed`)
+        }
+    } catch (error) {
+        if (String(error).includes("SES bulk recipients failed")) throw error
+
+        for (const prepared of batch) {
+            await recordNewsletterFailure(prepared, error, emailBatchId, siteId)
+        }
+        throw error
+    }
+}
 
 /**
  * Sends a single email via SES with idempotency protection.
@@ -181,29 +322,13 @@ async function sendSingleEmail(
     emailBatchId: string
 ) {
     const { request, recipientVariables } = prepared
-    const toEmail = request.Destination?.ToAddresses?.join() || ""
-    const recipientData = JSON.stringify({ toEmail, variables: recipientVariables })
-    const formattedContents = PERSIST_FORMATTED_CONTENTS ? safeStringify(request) : ""
 
     try {
         const resp = await sesNewsletterClient().send(new SendEmailCommand(request))
         const messageId = resp.MessageId as string
-        await createNewsletterEntry(messageId, newsletterBatchId, toEmail, recipientData, formattedContents)
-        log.info({ messageId, toEmail, siteId }, "email sent")
+        await recordNewsletterSuccess({ request, recipientVariables }, messageId, newsletterBatchId, siteId)
     } catch (e) {
-        const errorId = randomUUID()
-        log.error({ err: e, errorId, toEmail, siteId }, "SES send failed")
-        await createNewsletterErrorEntry(errorId, String(e), emailBatchId, toEmail, recipientData, formattedContents)
+        await recordNewsletterFailure({ request, recipientVariables }, e, emailBatchId, siteId)
         throw e // Re-throw so the queue tracks this as a failure
     }
-}
-
-// ─── Internal: SQS Helpers ───────────────────────────────────
-
-async function deleteFromQueue(receiptHandle?: string) {
-    if (!receiptHandle) return
-    await sqsClient().send(new DeleteMessageCommand({
-        QueueUrl: QUEUE_URL.NEWSLETTER,
-        ReceiptHandle: receiptHandle,
-    }))
 }

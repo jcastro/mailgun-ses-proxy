@@ -1,10 +1,11 @@
 import { MailgunEvents, MailgunRecipientVariables } from "@/types/default"
-import { MessageHeader, SendEmailRequest } from "@aws-sdk/client-sesv2"
+import { BulkEmailEntry, MessageHeader, SendBulkEmailRequest, SendEmailRequest } from "@aws-sdk/client-sesv2"
 import { Prisma } from "../generated"
 import { replaceAll } from "./common"
 
 type RecipientVariables = Partial<MailgunRecipientVariables[string]>
 type HeaderTemplate = { name: string, value: unknown }
+type BulkTemplate = { subject: string, text?: string, html?: string, keys: string[] }
 
 const DEFAULT_NEWSLETTER_EVENT_TAGS = [
     { Name: "ghost-email", Value: "true" },
@@ -21,6 +22,9 @@ const HEADER_KEYS_TO_SKIP = new Set([
 ])
 
 const RFC_5322_HEADER_NAME = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/
+const SAFE_SES_TEMPLATE_KEY = /^[A-Za-z0-9_]+$/
+const MAILGUN_RECIPIENT_TOKEN = /%recipient\.([^%]+)%/g
+const SES_TEMPLATE_MARKERS = /{{|}}/
 
 function doSubstitution(inputText: string | undefined, substitutions: RecipientVariables = {}) {
     if (!inputText) return ""
@@ -112,6 +116,58 @@ function buildMailgunHeaders(
     return Array.from(headers.entries()).map(([Name, Value]) => ({ Name, Value })) as MessageHeader[]
 }
 
+function collectRecipientTemplateKeys(values: unknown[]) {
+    const keys = new Set<string>()
+
+    for (const value of values) {
+        const raw = String(value ?? "")
+        for (const match of raw.matchAll(MAILGUN_RECIPIENT_TOKEN)) {
+            const key = match[1]
+            if (!SAFE_SES_TEMPLATE_KEY.test(key)) return null
+            keys.add(key)
+        }
+    }
+
+    return Array.from(keys)
+}
+
+function toSESTemplate(value: unknown) {
+    const raw = String(value ?? "")
+    if (SES_TEMPLATE_MARKERS.test(raw)) return null
+
+    return raw.replace(MAILGUN_RECIPIENT_TOKEN, (_, key) => `{{${key}}}`)
+}
+
+function buildBulkTemplate(input: any): BulkTemplate | null {
+    const keys = collectRecipientTemplateKeys([input.subject, input.text, input.html])
+    if (!keys) return null
+
+    const subject = toSESTemplate(input.subject)
+    const text = toSESTemplate(input.text)
+    const html = toSESTemplate(input.html)
+    if (subject === null || text === null || html === null) return null
+
+    return {
+        subject,
+        ...(text ? { text } : {}),
+        ...(html ? { html } : {}),
+        keys,
+    }
+}
+
+function buildReplacementTemplateData(keys: string[], recipientVariables: RecipientVariables) {
+    const data: Record<string, string> = {}
+
+    for (const key of keys) {
+        const value = recipientVariables[key as keyof RecipientVariables]
+        data[key] = value === undefined || value === null
+            ? `%recipient.${key}%`
+            : String(value)
+    }
+
+    return JSON.stringify(data)
+}
+
 export interface PreparedEmail {
     request: SendEmailRequest
     recipientVariables: RecipientVariables
@@ -178,6 +234,52 @@ export function* preparePayloadIterator(input: any, siteId: string): Generator<P
 
 export function preparePayload(input: any, siteId: string): PreparedEmail[] {
     return Array.from(preparePayloadIterator(input, siteId))
+}
+
+export function canPrepareBulkPayload(input: any) {
+    return buildBulkTemplate(input) !== null
+}
+
+export function prepareBulkEmailRequest(input: any, batch: PreparedEmail[]): SendBulkEmailRequest | null {
+    if (!batch.length) return null
+
+    const template = buildBulkTemplate(input)
+    if (!template) return null
+
+    const firstRequest = batch[0].request
+    const entries: BulkEmailEntry[] = batch.map(({ request, recipientVariables }) => {
+        const headers = request.Content?.Simple?.Headers || []
+
+        return {
+            Destination: request.Destination,
+            ...(headers.length ? { ReplacementHeaders: headers } : {}),
+            ...(template.keys.length ? {
+                ReplacementEmailContent: {
+                    ReplacementTemplate: {
+                        ReplacementTemplateData: buildReplacementTemplateData(template.keys, recipientVariables),
+                    },
+                },
+            } : {}),
+        }
+    })
+
+    return {
+        ConfigurationSetName: firstRequest.ConfigurationSetName,
+        FromEmailAddress: firstRequest.FromEmailAddress,
+        ...(firstRequest.ReplyToAddresses?.length ? { ReplyToAddresses: firstRequest.ReplyToAddresses } : {}),
+        ...(firstRequest.EmailTags?.length ? { DefaultEmailTags: firstRequest.EmailTags } : {}),
+        DefaultContent: {
+            Template: {
+                TemplateContent: {
+                    Subject: template.subject,
+                    ...(template.text ? { Text: template.text } : {}),
+                    ...(template.html ? { Html: template.html } : {}),
+                },
+                TemplateData: "{}",
+            },
+        },
+        BulkEmailEntries: entries,
+    }
 }
 
 const awsToMailgunType = {
