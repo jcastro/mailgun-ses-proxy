@@ -224,6 +224,15 @@ The proxy supports the Mailgun parameters Ghost sends:
 
 Unsupported Mailgun features are ignored where Ghost does not require them.
 
+### Large Newsletter Batches
+
+The proxy is designed for large Ghost newsletter batches. For 5,000+ recipients:
+
+- `RATE_LIMIT` should stay at or below the SES maximum send rate for your account.
+- `MAX_CONCURRENT` controls how many SES send operations may be in flight at once.
+- `NEWSLETTER_VISIBILITY_TIMEOUT` should be longer than the expected batch duration. For example, 5,000 recipients at `RATE_LIMIT=20` takes roughly 250 seconds before retries and network latency, so the default `1800` seconds leaves comfortable room.
+- Sent recipients are loaded once per batch and duplicate/already-sent recipients are skipped before enqueuing, which avoids one database lookup per recipient during retries.
+
 ## Monitoring & Logging
 
 For Docker deployment and publishing notes, see [docs/docker.md](docs/docker.md).

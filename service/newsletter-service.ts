@@ -3,15 +3,15 @@ import { MailgunMessage } from "@/types/mailgun"
 import { SendEmailCommand } from "@aws-sdk/client-sesv2"
 import { DeleteMessageCommand, Message, SendMessageCommand } from "@aws-sdk/client-sqs"
 import { randomUUID } from "node:crypto"
-import { PreparedEmail, preparePayload } from "../lib/core/aws-utils"
+import { PreparedEmail, preparePayloadIterator } from "../lib/core/aws-utils"
 import { safeStringify } from "../lib/core/common"
 import logger from "../lib/core/logger"
 import { QUEUE_URL, sesNewsletterClient, sqsClient } from "./aws/awsHelper"
 import {
-    checkNewsletterAlreadySent,
     createNewsletterBatchEntry,
     createNewsletterEntry,
     createNewsletterErrorEntry,
+    getNewsletterSentRecipients,
     getNewsletterContent,
     shouldPersistNewsletterFormattedContents,
 } from "./database/db"
@@ -43,6 +43,10 @@ export function validateNewsletterMessage(message: MailgunMessage) {
     if (!String(message.html || "").trim() && !String(message.text || "").trim()) {
         throw new Error("html or text content is required")
     }
+}
+
+function getPreparedToEmail(prepared: PreparedEmail) {
+    return prepared.request.Destination?.ToAddresses?.join() || ""
 }
 
 // ─── Public API ──────────────────────────────────────────────
@@ -116,31 +120,49 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         throw new Error(`Newsletter batch not found: ${newsletterBatchId}`)
     }
 
-    const emails = preparePayload(contents, siteId)
     const emailBatchId = contents["v:email-id"]
-
-    log.info({ emailCount: emails.length, emailBatchId }, "processing newsletter batch")
-
+    const alreadyQueuedOrSent = await getNewsletterSentRecipients(newsletterBatchId)
     const rateLimit = getPositiveNumber(process.env.RATE_LIMIT, DEFAULT_RATE_LIMIT)
     const maxConcurrent = getPositiveNumber(process.env.MAX_CONCURRENT, DEFAULT_MAX_CONCURRENT)
     const queue = new TaskQueue({ rateLimit, maxConcurrent })
 
-    for (const prepared of emails) {
+    let queuedCount = 0
+    let skippedCount = 0
+    let emailCount = 0
+
+    for (const prepared of preparePayloadIterator(contents, siteId)) {
+        emailCount++
+        const toEmail = getPreparedToEmail(prepared)
+        if (!toEmail || alreadyQueuedOrSent.has(toEmail)) {
+            skippedCount++
+            continue
+        }
+
+        alreadyQueuedOrSent.add(toEmail)
+        queuedCount++
         void queue.enqueue(
             () => sendSingleEmail(prepared, newsletterBatchId, siteId, emailBatchId),
             emailBatchId
         ).catch(() => undefined)
     }
 
+    log.info({
+        emailCount,
+        queuedCount,
+        skippedCount,
+        emailBatchId
+    }, "processing newsletter batch")
+
     const results = await queue.waitUntilFinished()
     log.info({
         sent: results.settledCount - results.failedCount,
         failed: results.failedCount,
+        skipped: skippedCount,
         durationMs: Math.round(results.totalDuration),
     }, "newsletter batch completed")
 
     if (results.failedCount > 0) {
-        throw new Error(`${results.failedCount}/${emails.length} emails failed in batch ${emailBatchId}`)
+        throw new Error(`${results.failedCount}/${queuedCount} emails failed in batch ${emailBatchId}`)
     }
 }
 
@@ -162,12 +184,6 @@ async function sendSingleEmail(
     const toEmail = request.Destination?.ToAddresses?.join() || ""
     const recipientData = JSON.stringify({ toEmail, variables: recipientVariables })
     const formattedContents = PERSIST_FORMATTED_CONTENTS ? safeStringify(request) : ""
-
-    // Idempotency: skip if this recipient was already sent in a previous attempt
-    if (toEmail && await checkNewsletterAlreadySent(newsletterBatchId, toEmail)) {
-        log.info({ toEmail, newsletterBatchId }, "skipping already-sent recipient")
-        return
-    }
 
     try {
         const resp = await sesNewsletterClient().send(new SendEmailCommand(request))

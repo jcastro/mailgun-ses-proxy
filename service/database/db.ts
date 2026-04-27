@@ -95,6 +95,14 @@ export async function checkNewsletterAlreadySent(batchId: string, toEmail: strin
     return !!existing
 }
 
+export async function getNewsletterSentRecipients(batchId: string) {
+    const rows = await prisma.newsletterMessages.findMany({
+        where: { newsletterBatchId: batchId },
+        select: { toEmail: true },
+    })
+    return new Set(rows.map(row => row.toEmail))
+}
+
 export async function getNewsletterContent(newsletterBatchId: string) {
     const result = await prisma.newsletterBatch.findUnique({
         where: { id: newsletterBatchId },

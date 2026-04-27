@@ -41,6 +41,7 @@ vi.mock('@/lib/db', () => ({
   createNewsletterEntry: vi.fn(),
   createNewsletterErrorEntry: vi.fn(),
   getNewsletterContent: vi.fn(),
+  getNewsletterSentRecipients: vi.fn(),
 }))
 
 // Mock AWS helpers

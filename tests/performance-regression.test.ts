@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 
 describe("Performance regressions", () => {
-    it("prepares large Ghost newsletter batches without quadratic slowdown", async () => {
+    it("prepares 5000-recipient Ghost newsletter batches without quadratic slowdown", async () => {
         vi.resetModules()
         vi.stubEnv("NEWSLETTER_CONFIGURATION_SET_NAME", "newsletter-config-set")
         const { preparePayload } = await import("@/lib/core/aws-utils")
 
-        const recipients = Array.from({ length: 1000 }, (_, i) => `reader-${i}@example.com`)
+        const recipients = Array.from({ length: 5000 }, (_, i) => `reader-${i}@example.com`)
         const recipientVariables = Object.fromEntries(
             recipients.map((email, i) => [email, {
                 name: `Reader ${i}`,
@@ -28,9 +28,38 @@ describe("Performance regressions", () => {
         }, "example.com")
         const durationMs = performance.now() - started
 
-        expect(payloads).toHaveLength(1000)
-        expect(payloads[999].request.Content?.Simple?.Subject?.Data).toBe("Hello Reader 999")
-        expect(durationMs).toBeLessThan(2000)
+        expect(payloads).toHaveLength(5000)
+        expect(payloads[4999].request.Content?.Simple?.Subject?.Data).toBe("Hello Reader 4999")
+        expect(durationMs).toBeLessThan(3000)
+    })
+
+    it("can stream 5000 prepared payloads without materializing a second array", async () => {
+        vi.resetModules()
+        vi.stubEnv("NEWSLETTER_CONFIGURATION_SET_NAME", "newsletter-config-set")
+        const { preparePayloadIterator } = await import("@/lib/core/aws-utils")
+
+        const recipients = Array.from({ length: 5000 }, (_, i) => `reader-${i}@example.com`)
+        const started = performance.now()
+        let count = 0
+        let lastSubject = ""
+
+        for (const payload of preparePayloadIterator({
+            to: recipients,
+            from: "Example <noreply@example.com>",
+            subject: "Hello",
+            html: "<p>Hello</p>",
+            text: "Hello",
+            "v:email-id": "ghost-email-id",
+        }, "example.com")) {
+            count++
+            lastSubject = payload.request.Content?.Simple?.Subject?.Data || ""
+        }
+
+        const durationMs = performance.now() - started
+
+        expect(count).toBe(5000)
+        expect(lastSubject).toBe("Hello")
+        expect(durationMs).toBeLessThan(1500)
     })
 
     it("formats large SES event pages fast enough for Ghost polling", async () => {
@@ -51,7 +80,7 @@ describe("Performance regressions", () => {
             }),
         })
 
-        const events = Array.from({ length: 1000 }, (_, i) => ({
+        const events = Array.from({ length: 5000 }, (_, i) => ({
             id: `event-${i}`,
             type: "clicked",
             messageId: `ses-msg-${i}`,
@@ -68,9 +97,9 @@ describe("Performance regressions", () => {
         const result = formatAsMailgunEvent(events, "https://proxy.example/v3/site/events?start=0")
         const durationMs = performance.now() - started
 
-        expect(result.items).toHaveLength(1000)
+        expect(result.items).toHaveLength(5000)
         expect(result.items[0].event).toBe("clicked")
-        expect(result.items[999].recipient).toBe("reader-999@example.com")
-        expect(durationMs).toBeLessThan(2000)
+        expect(result.items[4999].recipient).toBe("reader-4999@example.com")
+        expect(durationMs).toBeLessThan(3000)
     })
 })

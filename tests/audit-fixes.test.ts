@@ -99,6 +99,7 @@ describe('Issue 3: sendMail null content handling', () => {
       createNewsletterBatchEntry: vi.fn(),
       createNewsletterEntry: vi.fn(),
       createNewsletterErrorEntry: vi.fn(),
+      getNewsletterSentRecipients: vi.fn().mockResolvedValue(new Set()),
       shouldPersistNewsletterFormattedContents: vi.fn().mockReturnValue(false),
     }))
     vi.doMock('@/lib/core/logger', () => ({
@@ -148,6 +149,7 @@ describe('Issue 4: Invalid messages deleted from SQS', () => {
       createNewsletterBatchEntry: vi.fn(),
       createNewsletterEntry: vi.fn(),
       createNewsletterErrorEntry: vi.fn(),
+      getNewsletterSentRecipients: vi.fn().mockResolvedValue(new Set()),
       shouldPersistNewsletterFormattedContents: vi.fn().mockReturnValue(false),
     }))
     vi.doMock('@/lib/core/logger', () => ({
@@ -186,6 +188,7 @@ describe('Issue 4: Invalid messages deleted from SQS', () => {
       createNewsletterBatchEntry: vi.fn(),
       createNewsletterEntry: vi.fn(),
       createNewsletterErrorEntry: vi.fn(),
+      getNewsletterSentRecipients: vi.fn().mockResolvedValue(new Set()),
       shouldPersistNewsletterFormattedContents: vi.fn().mockReturnValue(false),
     }))
     vi.doMock('@/lib/core/logger', () => ({

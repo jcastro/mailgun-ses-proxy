@@ -62,7 +62,7 @@ export class TaskQueue {
       ? Math.floor(maxConcurrent)
       : 100;
 
-    this.rateLimitDelay = 1000 / safeRateLimit;
+    this.rateLimitDelay = safeRateLimit >= 1000 ? 0 : 1000 / safeRateLimit;
     this.maxConcurrent = safeMaxConcurrent;
   }
 

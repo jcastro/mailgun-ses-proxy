@@ -4,15 +4,20 @@ import { handleNewsletterEmailEvent } from "./events-service"
 import { validateAndSend } from "./newsletter-service"
 import { handleSystemEmailEvent } from "./system-email-notification"
 
+function getPositiveNumber(value: unknown, fallback: number) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 /**
  * Processes the newsletter queue (Ghost CMS batches).
- * Uses a long visibility timeout (15m) to handle large batch sends.
+ * Uses a long visibility timeout to handle large batch sends.
  */
 export async function processNewsletterQueue() {
     await startWorker({
         name: "newsletter-sender",
         queueUrl: QUEUE_URL.NEWSLETTER!,
-        visibilityTimeout: 900, // 15 minutes for processing batches
+        visibilityTimeout: getPositiveNumber(process.env.NEWSLETTER_VISIBILITY_TIMEOUT, 1800),
         handler: validateAndSend
     })
 }
@@ -38,5 +43,4 @@ export async function processSystemEventsQueue() {
         handler: handleSystemEmailEvent
     })
 }
-
 

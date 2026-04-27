@@ -40,6 +40,18 @@ At minimum, configure:
 - `NEWSLETTER_QUEUE`
 - `NEWSLETTER_NOTIFICATION_QUEUE`
 
+## Large Batch Tuning
+
+For newsletter batches around 5,000 recipients or more, tune these values to match your SES quota:
+
+```env
+RATE_LIMIT=20
+MAX_CONCURRENT=100
+NEWSLETTER_VISIBILITY_TIMEOUT=1800
+```
+
+`RATE_LIMIT` should not exceed the SES maximum send rate. `NEWSLETTER_VISIBILITY_TIMEOUT` must be longer than the time needed to send one batch; otherwise SQS may redeliver the same batch while it is still running.
+
 ## Healthcheck
 
 The image exposes:

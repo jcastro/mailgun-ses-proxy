@@ -4,6 +4,7 @@ import { Prisma } from "../generated"
 import { replaceAll } from "./common"
 
 type RecipientVariables = Partial<MailgunRecipientVariables[string]>
+type HeaderTemplate = { name: string, value: unknown }
 
 const DEFAULT_NEWSLETTER_EVENT_TAGS = [
     { Name: "ghost-email", Value: "true" },
@@ -70,7 +71,18 @@ function cleanMailgunHeaderValue(value: string) {
         .join(", ")
 }
 
-function buildMailgunHeaders(input: any, recipientVariables: RecipientVariables) {
+function getMailgunHeaderTemplates(input: any): HeaderTemplate[] {
+    return Object.entries(input)
+        .filter(([key]) => key.startsWith("h:"))
+        .map(([key, value]) => ({ name: key.slice(2), value }))
+}
+
+function buildMailgunHeaders(
+    headerTemplates: HeaderTemplate[],
+    recipientVariables: RecipientVariables,
+    unsubscribeTemplate?: unknown,
+    unsubscribePost?: unknown
+) {
     const headers = new Map<string, string>()
     const addHeader = (name: string, value: unknown) => {
         const cleanName = name.trim()
@@ -82,12 +94,10 @@ function buildMailgunHeaders(input: any, recipientVariables: RecipientVariables)
         headers.set(cleanName, rendered)
     }
 
-    for (const [key, value] of Object.entries(input)) {
-        if (!key.startsWith("h:")) continue
-        addHeader(key.slice(2), value)
+    for (const { name, value } of headerTemplates) {
+        addHeader(name, value)
     }
 
-    const unsubscribeTemplate = input["h:List-Unsubscribe"]
     const unsubscribeUrl = recipientVariables.list_unsubscribe || recipientVariables.unsubscribe_url
     if (unsubscribeTemplate) {
         addHeader("List-Unsubscribe", unsubscribeTemplate)
@@ -95,8 +105,8 @@ function buildMailgunHeaders(input: any, recipientVariables: RecipientVariables)
         addHeader("List-Unsubscribe", `<${unsubscribeUrl}>`)
     }
 
-    if (unsubscribeUrl || input["h:List-Unsubscribe-Post"]) {
-        addHeader("List-Unsubscribe-Post", input["h:List-Unsubscribe-Post"] || "List-Unsubscribe=One-Click")
+    if (unsubscribeUrl || unsubscribePost) {
+        addHeader("List-Unsubscribe-Post", unsubscribePost || "List-Unsubscribe=One-Click")
     }
 
     return Array.from(headers.entries()).map(([Name, Value]) => ({ Name, Value })) as MessageHeader[]
@@ -107,23 +117,27 @@ export interface PreparedEmail {
     recipientVariables: RecipientVariables
 }
 
-export function preparePayload(input: any, siteId: string): PreparedEmail[] {
+export function* preparePayloadIterator(input: any, siteId: string): Generator<PreparedEmail> {
     const recepientVariables = parseRecipientVariables(input["recipient-variables"])
     const receivers = asAddressList(input.to) || []
-    const result = receivers.map((receiverEmail: string | number) => {
+    const replyTo = asAddressList(input["h:Reply-To"])
+    const cc = asAddressList(input["h:Cc"])
+    const bcc = asAddressList(input["h:Bcc"])
+    const headerTemplates = getMailgunHeaderTemplates(input)
+    const unsubscribeTemplate = input["h:List-Unsubscribe"]
+    const unsubscribePost = input["h:List-Unsubscribe-Post"]
+
+    for (const receiverEmail of receivers) {
         const recipientEmail = String(receiverEmail)
         const recipientVariables = recepientVariables[recipientEmail] || {}
-        const replyTo = asAddressList(input["h:Reply-To"])
-        const headers = buildMailgunHeaders(input, recipientVariables)
-        const cc = asAddressList(input["h:Cc"])
-        const bcc = asAddressList(input["h:Bcc"])
+        const headers = buildMailgunHeaders(headerTemplates, recipientVariables, unsubscribeTemplate, unsubscribePost)
         const destination = {
             ToAddresses: [recipientEmail],
             ...(cc ? { CcAddresses: cc } : {}),
             ...(bcc ? { BccAddresses: bcc } : {}),
         }
 
-        return {
+        yield {
             request: {
             ConfigurationSetName: process.env.NEWSLETTER_CONFIGURATION_SET_NAME,
             FromEmailAddress: input.from,
@@ -156,11 +170,14 @@ export function preparePayload(input: any, siteId: string): PreparedEmail[] {
                 },
                 ...DEFAULT_NEWSLETTER_EVENT_TAGS,
             ],
-        },
+            },
             recipientVariables,
         }
-    })
-    return result
+    }
+}
+
+export function preparePayload(input: any, siteId: string): PreparedEmail[] {
+    return Array.from(preparePayloadIterator(input, siteId))
 }
 
 const awsToMailgunType = {
