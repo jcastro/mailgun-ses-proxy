@@ -71,6 +71,20 @@ Docker also runs the same healthcheck inside the container.
 
 The included GitHub Actions workflow builds and publishes an `linux/amd64` image to GitHub Container Registry on pushes to `main` and on tags.
 
+When a `v*` tag is pushed, the workflow also creates a GitHub Release after the Docker image has been published. Use:
+
+```bash
+npm run release:patch
+npm run release:minor
+npm run release:major
+```
+
+Each release has a matching image tag:
+
+```text
+ghcr.io/OWNER/mailgun-ses-proxy:vX.Y.Z
+```
+
 Manual build:
 
 ```bash

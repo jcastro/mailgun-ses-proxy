@@ -176,6 +176,18 @@ docker compose up -d
 
 Do not bake secrets into the image. All secrets must come from `.env`, Docker secrets, or your deployment platform.
 
+## Releases
+
+Versioned releases are published from `v*` git tags. Each release includes generated GitHub notes and a matching GHCR image tag.
+
+```bash
+npm run release:patch
+npm run release:minor
+npm run release:major
+```
+
+See [CHANGELOG.md](CHANGELOG.md) and the GitHub Releases page for what changed between versions.
+
 ### Production Deployment
 
 In production, keep the proxy private behind your reverse proxy or Docker network. If exposed publicly, always require HTTPS and keep `API_KEY` long and random.
