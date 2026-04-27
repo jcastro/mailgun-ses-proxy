@@ -262,8 +262,8 @@ The proxy is designed for large Ghost newsletter batches. For 5,000+ recipients:
 - `RATE_LIMIT` should stay at or below the SES maximum send rate for your account.
 - `MAX_CONCURRENT` controls how many SES send operations may be in flight at once.
 - `SES_BULK_SEND_ENABLED=true` lets compatible newsletter batches use SES bulk send, reducing SES API calls while still storing a message id for each recipient.
-- `SES_BULK_SEND_SIZE` controls the maximum recipients per SES bulk request. SES supports up to 50, which is the default.
-- `NEWSLETTER_VISIBILITY_TIMEOUT` should be longer than the expected batch duration. For example, 5,000 recipients at `RATE_LIMIT=20` takes roughly 250 seconds before retries and network latency, so the default `1800` seconds leaves comfortable room.
+- `SES_BULK_SEND_SIZE` controls the maximum recipients per SES bulk request. SES supports up to 50, but the default is 10 so new SES accounts with lower send rates do not submit a large recipient burst in one API call.
+- `NEWSLETTER_VISIBILITY_TIMEOUT` should be longer than the expected batch duration. For example, 5,000 recipients at `RATE_LIMIT=10` takes roughly 500 seconds before retries and network latency, so the default `3600` seconds leaves comfortable room.
 - `SQS_EVENT_RECEIVE_BATCH_SIZE=10` reduces SQS receive/delete API calls for SES event queues.
 - Sent recipients are loaded once per batch and duplicate/already-sent recipients are skipped before enqueuing, which avoids one database lookup per recipient during retries.
 

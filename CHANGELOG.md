@@ -17,6 +17,13 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.4 - 2026-04-28
+
+- Lowered default newsletter throughput settings so new deployments stay safely below common SES send-rate quotas.
+- Reduced default SES bulk recipient batch size to avoid large recipient bursts on accounts with low `MaxSendRate`.
+- Documented SES open tracking versus click link rewriting for Ghost newsletter deliverability.
+- Added `ses:SendBulkEmail` to the sample least-privilege IAM policy.
+
 ## 2.1.3 - 2026-04-27
 
 - Extended SES bulk-send fallback detection to cover `SendBulkTemplatedEmail` authorization errors.

@@ -28,14 +28,16 @@ Enable event publishing for at least:
 
 - Send
 - Delivery
-- Open
-- Click
+- Open, if you want Ghost open-rate stats
+- Click, only if you intentionally want SES link rewriting
 - Bounce
 - Complaint
 - Reject
 - DeliveryDelay
 
 Send these events to an SNS topic, then subscribe the SQS event queue to that topic.
+
+SES click tracking rewrites links through Amazon tracking URLs. Some mailbox providers can treat aggressive link rewriting as suspicious, so for Ghost newsletters a conservative setup is to enable `Open` while leaving `Click` disabled and relying on Ghost's native link tracking.
 
 ## SQS Queues
 
@@ -58,7 +60,7 @@ Create a dedicated IAM user or role for the proxy. Keep permissions narrow:
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["ses:SendEmail"],
+      "Action": ["ses:SendEmail", "ses:SendBulkEmail"],
       "Resource": "*"
     },
     {

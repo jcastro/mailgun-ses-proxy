@@ -24,9 +24,9 @@ import {
 const log = logger.child({ service: "service:newsletter-service" })
 const PERSIST_FORMATTED_CONTENTS = shouldPersistNewsletterFormattedContents()
 const MAX_RECEIVE_COUNT = 3
-const DEFAULT_RATE_LIMIT = 20
-const DEFAULT_MAX_CONCURRENT = 100
-const DEFAULT_BULK_SEND_SIZE = 50
+const DEFAULT_RATE_LIMIT = 10
+const DEFAULT_MAX_CONCURRENT = 4
+const DEFAULT_BULK_SEND_SIZE = 10
 
 function getPositiveNumber(value: unknown, fallback: number) {
     const parsed = Number(value)
