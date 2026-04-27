@@ -229,8 +229,19 @@ async function sendPreparedBatch(
     bulkEnabled: boolean
 ) {
     if (bulkEnabled && batch.length > 1) {
-        await sendBulkEmailBatch(contents, batch, newsletterBatchId, siteId, emailBatchId)
-        return
+        try {
+            await sendBulkEmailBatch(contents, batch, newsletterBatchId, siteId, emailBatchId)
+            return
+        } catch (error) {
+            if (!isBulkSendPermissionError(error)) throw error
+
+            log.warn({
+                err: error,
+                batchSize: batch.length,
+                siteId,
+                emailBatchId,
+            }, "SES bulk send is not authorized, falling back to individual sends")
+        }
     }
 
     for (const prepared of batch) {
@@ -252,13 +263,19 @@ async function recordNewsletterSuccess(
 async function recordNewsletterFailure(
     prepared: PreparedEmail,
     error: unknown,
-    emailBatchId: string,
+    newsletterBatchId: string,
     siteId: string
 ) {
     const errorId = randomUUID()
     const { toEmail, recipientData, formattedContents } = getPreparedRecipientData(prepared)
     log.error({ err: error, errorId, toEmail, siteId }, "SES send failed")
-    await createNewsletterErrorEntry(errorId, String(error), emailBatchId, toEmail, recipientData, formattedContents)
+    await createNewsletterErrorEntry(errorId, String(error), newsletterBatchId, toEmail, recipientData, formattedContents)
+}
+
+function isBulkSendPermissionError(error: unknown) {
+    const name = typeof error === "object" && error && "name" in error ? String(error.name) : ""
+    const message = error instanceof Error ? error.message : String(error)
+    return name === "AccessDeniedException" && message.includes("SendBulkEmail")
 }
 
 async function sendBulkEmailBatch(
@@ -291,7 +308,7 @@ async function sendBulkEmailBatch(
             await recordNewsletterFailure(
                 prepared,
                 result?.Error || result?.Status || "Unknown SES bulk send failure",
-                emailBatchId,
+                newsletterBatchId,
                 siteId
             )
         }
@@ -301,9 +318,10 @@ async function sendBulkEmailBatch(
         }
     } catch (error) {
         if (String(error).includes("SES bulk recipients failed")) throw error
+        if (isBulkSendPermissionError(error)) throw error
 
         for (const prepared of batch) {
-            await recordNewsletterFailure(prepared, error, emailBatchId, siteId)
+            await recordNewsletterFailure(prepared, error, newsletterBatchId, siteId)
         }
         throw error
     }
@@ -328,7 +346,7 @@ async function sendSingleEmail(
         const messageId = resp.MessageId as string
         await recordNewsletterSuccess({ request, recipientVariables }, messageId, newsletterBatchId, siteId)
     } catch (e) {
-        await recordNewsletterFailure({ request, recipientVariables }, e, emailBatchId, siteId)
+        await recordNewsletterFailure({ request, recipientVariables }, e, newsletterBatchId, siteId)
         throw e // Re-throw so the queue tracks this as a failure
     }
 }

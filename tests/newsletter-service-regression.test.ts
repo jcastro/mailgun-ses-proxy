@@ -6,6 +6,7 @@ async function loadNewsletterService() {
 
     const createNewsletterBatchEntry = vi.fn()
     const createNewsletterEntry = vi.fn()
+    const createNewsletterErrorEntry = vi.fn()
     const getNewsletterContent = vi.fn()
     const getNewsletterSentRecipients = vi.fn().mockResolvedValue(new Set())
     const sqsSend = vi.fn()
@@ -14,7 +15,7 @@ async function loadNewsletterService() {
     vi.doMock("@/service/database/db", () => ({
         createNewsletterBatchEntry,
         createNewsletterEntry,
-        createNewsletterErrorEntry: vi.fn(),
+        createNewsletterErrorEntry,
         checkNewsletterAlreadySent: vi.fn(),
         getNewsletterSentRecipients,
         getNewsletterContent,
@@ -32,6 +33,7 @@ async function loadNewsletterService() {
         service,
         createNewsletterBatchEntry,
         createNewsletterEntry,
+        createNewsletterErrorEntry,
         getNewsletterContent,
         getNewsletterSentRecipients,
         sqsSend,
@@ -184,5 +186,99 @@ describe("Newsletter service regressions", () => {
             "ses-bulk-2",
             "ses-bulk-3",
         ])
+    })
+
+    it("falls back to individual SES sends when SendBulkEmail is not allowed", async () => {
+        vi.stubEnv("RATE_LIMIT", "1000000")
+        vi.stubEnv("MAX_CONCURRENT", "5000")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "true")
+        vi.stubEnv("SES_BULK_SEND_SIZE", "50")
+
+        const {
+            service,
+            createNewsletterEntry,
+            createNewsletterErrorEntry,
+            getNewsletterContent,
+            sesSend,
+        } = await loadNewsletterService()
+
+        getNewsletterContent.mockResolvedValue({
+            from: "newsletter@example.com",
+            to: [
+                "reader-1@example.com",
+                "reader-2@example.com",
+            ],
+            subject: "Hello",
+            html: "<p>Hello</p>",
+            "v:email-id": "ghost-email-id",
+        })
+
+        let callNumber = 0
+        sesSend.mockImplementation(async () => {
+            callNumber++
+            if (callNumber === 1) {
+                const error = new Error("User is not authorized to perform `ses:SendBulkEmail`")
+                ;(error as Error & { name: string }).name = "AccessDeniedException"
+                throw error
+            }
+
+            return { MessageId: `ses-single-${callNumber - 1}` }
+        })
+
+        const result = await service.validateAndSend({
+            Body: "newsletter-batch-db-id",
+            ReceiptHandle: "receipt-handle",
+            MessageAttributes: {
+                siteId: { StringValue: "site-123", DataType: "String" },
+                from: { StringValue: "newsletter@example.com", DataType: "String" },
+            },
+            Attributes: { ApproximateReceiveCount: "1" },
+        } as any)
+
+        expect(result).toBe("delete")
+        expect(sesSend).toHaveBeenCalledTimes(3)
+        expect(createNewsletterEntry).toHaveBeenCalledTimes(2)
+        expect(createNewsletterEntry.mock.calls.map(call => call[0])).toEqual([
+            "ses-single-1",
+            "ses-single-2",
+        ])
+        expect(createNewsletterErrorEntry).not.toHaveBeenCalled()
+    })
+
+    it("records send failures against the internal newsletter batch id", async () => {
+        vi.stubEnv("RATE_LIMIT", "1000000")
+        vi.stubEnv("MAX_CONCURRENT", "5000")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "false")
+
+        const {
+            service,
+            createNewsletterErrorEntry,
+            getNewsletterContent,
+            sesSend,
+        } = await loadNewsletterService()
+
+        getNewsletterContent.mockResolvedValue({
+            from: "newsletter@example.com",
+            to: ["reader@example.com"],
+            subject: "Hello",
+            html: "<p>Hello</p>",
+            "v:email-id": "ghost-email-id",
+        })
+        sesSend.mockRejectedValue(new Error("SES rejected the message"))
+
+        const result = await service.validateAndSend({
+            Body: "newsletter-batch-db-id",
+            ReceiptHandle: "receipt-handle",
+            MessageAttributes: {
+                siteId: { StringValue: "site-123", DataType: "String" },
+                from: { StringValue: "newsletter@example.com", DataType: "String" },
+            },
+            Attributes: { ApproximateReceiveCount: "1" },
+        } as any)
+
+        expect(result).toBe("retry")
+        expect(createNewsletterErrorEntry).toHaveBeenCalledTimes(1)
+        expect(createNewsletterErrorEntry.mock.calls[0][2]).toBe("newsletter-batch-db-id")
+        expect(createNewsletterErrorEntry.mock.calls[0][3]).toBe("reader@example.com")
     })
 })
