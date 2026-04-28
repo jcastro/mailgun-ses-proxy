@@ -106,16 +106,19 @@ After the send:
 ```bash
 cd /opt/mailgun-ses-proxy
 cp docker-compose.yaml docker-compose.yaml.backup.$(date -u +%Y%m%dT%H%M%SZ)
-docker compose pull proxy
-docker compose up -d proxy
+./scripts/compose-update.sh
 curl http://127.0.0.1:3000/healthcheck
 docker compose logs --tail=100 proxy
 ```
 
-If the server uses legacy `docker-compose` v1 and fails with `ContainerConfig`, remove only the stopped proxy container and recreate it:
+The helper script uses Docker Compose v2 when available. On legacy `docker-compose` v1 servers, it automatically avoids the known `ContainerConfig` recreate bug by removing and recreating only the proxy container.
+
+Manual fallback if you are not using the helper:
 
 ```bash
-docker rm old_proxy_container_name
+docker-compose pull proxy
+docker-compose up -d db
+docker rm -f "$(docker-compose ps -q proxy)"
 docker-compose up -d proxy
 ```
 

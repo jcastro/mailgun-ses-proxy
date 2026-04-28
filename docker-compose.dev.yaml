@@ -1,0 +1,6 @@
+services:
+  proxy:
+    image: ${IMAGE:-mailgun-ses-proxy:dev}
+    build:
+      context: .
+      dockerfile: dockerfile

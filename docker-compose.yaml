@@ -17,10 +17,7 @@ services:
       retries: 12
 
   proxy:
-    image: ${IMAGE:-mailgun-ses-proxy:latest}
-    build:
-      context: .
-      dockerfile: dockerfile
+    image: ${IMAGE:-ghcr.io/jcastro/mailgun-ses-proxy:latest}
     restart: unless-stopped
     depends_on:
       db:

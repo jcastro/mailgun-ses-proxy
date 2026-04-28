@@ -6,7 +6,7 @@ The application is designed to run as a Docker image. Runtime configuration come
 
 ```bash
 cp .env.example .env
-docker compose up -d
+./scripts/compose-update.sh
 ```
 
 By default the proxy binds to localhost:
@@ -23,14 +23,14 @@ Use the published image:
 
 ```bash
 IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:latest
-docker compose up -d
+./scripts/compose-update.sh
 ```
 
 For a pinned production deploy, prefer a version tag:
 
 ```bash
-IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.5
-docker compose up -d
+IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.7
+./scripts/compose-update.sh
 ```
 
 ## Required Environment
@@ -52,14 +52,37 @@ See `.env.example` for all available options.
 ## Updating
 
 ```bash
-docker compose pull proxy
-docker compose up -d proxy
+./scripts/compose-update.sh
 curl http://127.0.0.1:3000/healthcheck
 ```
 
 The container runs Prisma migrations on startup.
 
-Legacy servers using `docker-compose` v1 can hit a known recreate error named `ContainerConfig`. If that happens, remove only the stopped proxy container and run `docker-compose up -d proxy` again. Do not remove the database container or volume.
+## Docker Compose Compatibility
+
+Docker Compose v2 is recommended:
+
+```bash
+docker compose version
+```
+
+Some older servers still have the deprecated Python `docker-compose` v1. With modern Docker Engine versions, v1 can fail during container recreation with:
+
+```text
+KeyError: 'ContainerConfig'
+```
+
+This is a Compose v1 recreate bug, not an application failure. The safe update helper detects v1 and removes only the proxy container before recreating it. It does not remove the MySQL container or the database volume:
+
+```bash
+./scripts/compose-update.sh
+```
+
+For local source builds, use the development override:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+```
 
 ## Large Batch Tuning
 

@@ -84,14 +84,16 @@ For a guided deployment, see [docs/quickstart.md](docs/quickstart.md).
 
 ### Docker Compose
 
-Build and run the proxy plus MySQL:
+Run the published image plus MySQL:
 
 ```bash
 cp .env.example .env
-docker compose up -d
+./scripts/compose-update.sh
 ```
 
 The proxy listens on `127.0.0.1:3000` by default. Change `HOST_BIND` and `HOST_PORT` in `.env` if you need a different binding.
+
+The update helper prefers Docker Compose v2 and automatically works around the legacy `docker-compose` v1 `ContainerConfig` recreate bug.
 
 ### Standalone Docker
 
@@ -111,6 +113,12 @@ npm install
 npm run db:generate
 npm run db:migrate:dev
 npm run dev
+```
+
+For a local Docker source build:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
 ```
 
 ## Publishing An Image
@@ -136,7 +144,7 @@ Then users can set:
 
 ```bash
 IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:latest
-docker compose up -d
+./scripts/compose-update.sh
 ```
 
 Do not bake secrets into the image. All secrets must come from `.env`, Docker secrets, or your deployment platform.

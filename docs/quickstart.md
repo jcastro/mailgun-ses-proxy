@@ -52,17 +52,26 @@ The send queue stores newsletter batches. The event queue receives SES notificat
 
 ## 4. Run The Proxy
 
-Create a directory on your server:
+Create a directory on your server. The simplest path is to clone this repository so you get the Compose file, example environment, and update helper together:
 
 ```bash
-mkdir -p /opt/mailgun-ses-proxy
+git clone https://github.com/jcastro/mailgun-ses-proxy.git /opt/mailgun-ses-proxy
 cd /opt/mailgun-ses-proxy
 ```
 
-Download `docker-compose.yaml` and `.env.example` from this repository, then create your runtime `.env`:
+If you do not want the full repository, download these three files into the same directory instead:
+
+```text
+docker-compose.yaml
+.env.example
+scripts/compose-update.sh
+```
+
+Then create your runtime `.env`:
 
 ```bash
 cp .env.example .env
+chmod +x scripts/compose-update.sh
 ```
 
 Edit `.env` and set at least:
@@ -92,10 +101,10 @@ HOST_BIND=127.0.0.1
 HOST_PORT=3000
 ```
 
-Start it:
+Start it. The helper script uses Docker Compose v2 when available and safely works around the legacy `docker-compose` v1 `ContainerConfig` recreate bug:
 
 ```bash
-docker compose up -d
+./scripts/compose-update.sh
 ```
 
 Check health:

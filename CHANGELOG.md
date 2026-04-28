@@ -17,6 +17,13 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.7 - 2026-04-28
+
+- Added a Docker Compose update helper that detects Compose v1/v2 and works around the legacy `docker-compose` v1 `ContainerConfig` recreate bug.
+- Changed the default Compose deployment to use the published GHCR image instead of trying to build locally.
+- Added a separate `docker-compose.dev.yaml` override for source builds.
+- Updated deployment and operations docs with the safe update flow.
+
 ## 2.1.6 - 2026-04-28
 
 - Added step-by-step setup documentation for Ghost, Amazon SES, Cloudflare DNS, IAM, Docker deployment, operations, and Mailgun migration.

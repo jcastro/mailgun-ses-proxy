@@ -1,6 +1,6 @@
 {
     "name": "mailgun-to-ses-proxy",
-    "version": "2.1.6",
+    "version": "2.1.7",
     "private": true,
     "license": "AGPL-3.0-only",
     "repository": {
