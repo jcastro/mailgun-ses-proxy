@@ -17,6 +17,10 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.8 - 2026-04-28
+
+- Added a detailed Amazon SES production-access request template based on a real approved Ghost migration use case.
+
 ## 2.1.7 - 2026-04-28
 
 - Added a Docker Compose update helper that detects Compose v1/v2 and works around the legacy `docker-compose` v1 `ContainerConfig` recreate bug.

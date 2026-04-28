@@ -74,6 +74,22 @@ Recommended request text:
 I will use Amazon SES to send email from my self-hosted Ghost website. Emails include member login links, signup confirmations, passwordless login emails, password recovery emails, system notifications, and newsletters only for users who voluntarily subscribe. I will not send unsolicited email. The domain will have SPF, DKIM, DMARC, and a custom MAIL FROM domain configured. Bounces, complaints, deliveries, opens, and unsubscribes are published through SES event publishing and processed by my application. I will monitor bounce and complaint rates and suppress recipients who bounce permanently or complain.
 ```
 
+More detailed template, based on a production-access request that was approved. Replace the domain, URL, event types, and expected volume with your own real values:
+
+```text
+I will use Amazon SES to send emails from my self-hosted Ghost website at https://example.com.
+
+The emails include member login links, signup confirmations, passwordless login emails, password recovery emails, system notifications, and newsletters only for users who voluntarily subscribe.
+
+I will not send unsolicited email. The domain example.com is configured with SPF, DKIM, DMARC, and a custom MAIL FROM domain. Bounces, complaints, deliveries, opens, and unsubscribes are published through SES event publishing and processed by my application.
+
+The application monitors bounce and complaint rates. Recipients who complain or permanently bounce are suppressed and skipped on future sends.
+
+Expected volume is low initially, under 15,000 emails/month, with gradual growth.
+```
+
+If you have higher volume, state it honestly and explain how subscribers opt in, how they unsubscribe, and how bounces/complaints are handled. AWS is usually looking for a clear permission-based sending process, not a magic phrase.
+
 Do not send a real newsletter until production access is enabled.
 
 ## 4. Create SQS Queues
