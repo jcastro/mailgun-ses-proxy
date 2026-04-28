@@ -17,6 +17,19 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.6 - 2026-04-28
+
+- Added step-by-step setup documentation for Ghost, Amazon SES, Cloudflare DNS, IAM, Docker deployment, operations, and Mailgun migration.
+- Added a quickstart guide for first-time users.
+- Added least-privilege IAM examples for proxy runtime and CloudWatch alarm setup.
+- Updated GitHub Actions so version tags build and publish the matching GHCR image before creating the release.
+
+## 2.1.5 - 2026-04-28
+
+- Added local suppression handling for SES complaints, permanent bounces, and repeated transient bounces.
+- Skips locally suppressed recipients before calling SES and emits Mailgun-compatible failed events for Ghost analytics.
+- Added database migration and regression coverage for suppression behavior.
+
 ## 2.1.4 - 2026-04-28
 
 - Lowered default newsletter throughput settings so new deployments stay safely below common SES send-rate quotas.

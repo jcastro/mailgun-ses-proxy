@@ -14,13 +14,24 @@ This repository is not a from-scratch implementation. It is a modified distribut
 
 Ghost natively integrates with Mailgun for bulk newsletter delivery and analytics. This proxy provides the Mailgun API surface Ghost needs, while using SES for delivery.
 
+## Start Here
+
+- [Quickstart](docs/quickstart.md): fastest path from zero to a working Ghost + SES proxy.
+- [Amazon SES setup](docs/aws-ses.md): domain identity, DKIM, MAIL FROM, queues, configuration set, and production access.
+- [Cloudflare DNS](docs/cloudflare-dns.md): SES DNS records while keeping Mailgun during migration.
+- [Ghost configuration](docs/ghost.md): newsletter proxy settings and SES SMTP for transactional email.
+- [IAM policies](docs/iam-policies.md): minimal runtime permissions and alarm setup permissions.
+- [Docker deployment](docs/docker.md): compose, updates, large-batch tuning, and publishing.
+- [Migration from Mailgun](docs/migration-from-mailgun.md): phased migration and rollback.
+- [Operations](docs/operations.md): monitoring, suppressions, large-send checklist, and updates.
+
 ## Features
 
 - **Ghost/Mailgun API Compatibility**: Implements the Mailgun v3 routes Ghost uses for newsletters
 - **Amazon SES Backend**: Routes all email sending through AWS SES for better deliverability and cost-effectiveness
 - **Queue-based Processing**: Uses AWS SQS for reliable email queue management
 - **Event Tracking**: Converts SES events to Mailgun-compatible `delivered`, `opened`, `failed`, `complained`, `unsubscribed`, and `clicked` events
-- **Suppression Compatibility**: Acknowledges Ghost's Mailgun suppression cleanup calls
+- **Suppression Handling**: Suppresses complaints and permanent bounces locally, while still exposing Mailgun-compatible events to Ghost
 - **Database Logging**: Stores email batches, messages, and events in MySQL database
 - **Dashboard Analytics**: Shows delivery, open, click, bounce, complaint, unsubscribe, and send-error metrics from stored SES/Mailgun-compatible events
 - **Health Monitoring**: Built-in health check endpoints for monitoring
@@ -48,58 +59,7 @@ Before setting up the server, ensure you have:
 
 ## AWS Configuration
 
-For a fuller walkthrough, see [docs/aws-ses.md](docs/aws-ses.md).
-
-### 1. Amazon SES Setup
-
-1. **Verify your sending domain** in AWS SES console
-2. **Create Configuration Sets** for tracking:
-    - `newsletter-config-set` (for newsletter emails)
-    - `system-config-set` (for transactional emails)
-3. **Set up SNS topics** for event notifications (optional but recommended)
-4. **Request production access** if sending to unverified email addresses
-
-### 2. AWS SQS Setup
-
-Create the following SQS queues:
-
-- `newsletter-buffer-queue` - For buffering newsletter emails for processing
-- `newsletter-events-queue` - For SES event notifications from newsletter emails
-- `system-events-queue` - For SES event notifications from transactional emails
-
-### 3. Connect SNS to SQS
-
-For each SNS topic, create a subscription to the corresponding SQS queue:
-
-1. Go to SNS Console
-2. Select the topic
-3. Click "Create subscription"
-4. Set protocol to "Amazon SQS"
-5. Set the SQS queue
-
-### 4. IAM Permissions
-
-Your AWS credentials need the following permissions:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "ses:SendEmail",
-                "ses:SendRawEmail",
-                "sqs:SendMessage",
-                "sqs:ReceiveMessage",
-                "sqs:DeleteMessage",
-                "sqs:GetQueueAttributes"
-            ],
-            "Resource": "*"
-        }
-    ]
-}
-```
+For the full walkthrough, see [docs/aws-ses.md](docs/aws-ses.md). For least-privilege policies, see [docs/iam-policies.md](docs/iam-policies.md).
 
 ## Environment Configuration
 
@@ -120,13 +80,15 @@ Important variables:
 
 ## Installation & Setup
 
+For a guided deployment, see [docs/quickstart.md](docs/quickstart.md).
+
 ### Docker Compose
 
 Build and run the proxy plus MySQL:
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d
 ```
 
 The proxy listens on `127.0.0.1:3000` by default. Change `HOST_BIND` and `HOST_PORT` in `.env` if you need a different binding.
@@ -136,8 +98,10 @@ The proxy listens on `127.0.0.1:3000` by default. Change `HOST_BIND` and `HOST_P
 Use this when MySQL already exists elsewhere:
 
 ```bash
-docker build -f dockerfile -t mailgun-ses-proxy:latest .
-docker run --rm -p 127.0.0.1:3000:3000 --env-file .env mailgun-ses-proxy:latest
+docker run --rm \
+  -p 127.0.0.1:3000:3000 \
+  --env-file .env \
+  ghcr.io/jcastro/mailgun-ses-proxy:latest
 ```
 
 ### Local Development
@@ -179,18 +143,15 @@ Do not bake secrets into the image. All secrets must come from `.env`, Docker se
 
 ## Releases
 
-Versioned releases are published from `v*` git tags. Build and push the GHCR image locally first, then push the git tag so GitHub can run CI and create the release notes.
+Versioned releases are published from `v*` git tags. Pushing a tag runs CI, builds the `linux/amd64` Docker image, pushes it to GHCR, and creates the GitHub Release.
 
 ```bash
-docker buildx build --platform linux/amd64 -f dockerfile \
-  -t ghcr.io/jcastro/mailgun-ses-proxy:vX.Y.Z \
-  -t ghcr.io/jcastro/mailgun-ses-proxy:latest \
-  --push .
-
 npm run release:patch
 npm run release:minor
 npm run release:major
 ```
+
+Manual local publishing is also supported; see [docs/docker.md](docs/docker.md).
 
 See [CHANGELOG.md](CHANGELOG.md) and the GitHub Releases page for what changed between versions.
 

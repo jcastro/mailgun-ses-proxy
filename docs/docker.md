@@ -6,7 +6,7 @@ The application is designed to run as a Docker image. Runtime configuration come
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d
 ```
 
 By default the proxy binds to localhost:
@@ -19,10 +19,17 @@ This is intentional. Put a reverse proxy in front of it if Ghost runs on another
 
 ## Prebuilt Image
 
-If you publish the image to GHCR or Docker Hub:
+Use the published image:
 
 ```bash
-IMAGE=ghcr.io/OWNER/mailgun-ses-proxy:latest
+IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:latest
+docker compose up -d
+```
+
+For a pinned production deploy, prefer a version tag:
+
+```bash
+IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.5
 docker compose up -d
 ```
 
@@ -39,6 +46,20 @@ At minimum, configure:
 - `NEWSLETTER_CONFIGURATION_SET_NAME`
 - `NEWSLETTER_QUEUE`
 - `NEWSLETTER_NOTIFICATION_QUEUE`
+
+See `.env.example` for all available options.
+
+## Updating
+
+```bash
+docker compose pull proxy
+docker compose up -d proxy
+curl http://127.0.0.1:3000/healthcheck
+```
+
+The container runs Prisma migrations on startup.
+
+Legacy servers using `docker-compose` v1 can hit a known recreate error named `ContainerConfig`. If that happens, remove only the stopped proxy container and run `docker-compose up -d proxy` again. Do not remove the database container or volume.
 
 ## Large Batch Tuning
 
@@ -74,7 +95,17 @@ Docker also runs the same healthcheck inside the container.
 
 ## Publishing
 
-Build and publish the `linux/amd64` image locally, then let GitHub Actions run CI and create the GitHub Release from the version tag.
+The normal release flow is:
+
+```bash
+npm run release:patch
+npm run release:minor
+npm run release:major
+```
+
+Pushing a `v*` tag runs CI, builds the `linux/amd64` image in GitHub Actions, pushes it to GHCR, and creates a GitHub Release.
+
+Manual local publishing is also supported:
 
 Manual build:
 
@@ -87,7 +118,7 @@ docker buildx build \
   --push .
 ```
 
-Then create and push the matching version tag:
+Then create and push the matching version tag if you want a GitHub Release:
 
 ```bash
 npm run release:patch
