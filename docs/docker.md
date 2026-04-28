@@ -17,6 +17,46 @@ By default the proxy binds to localhost:
 
 This is intentional. Put a reverse proxy in front of it if Ghost runs on another host, and use HTTPS.
 
+## Install Docker
+
+For production servers, install Docker Engine from Docker's official apt repository rather than the Ubuntu `docker.io` package. The official package includes the modern Compose plugin, so the command is `docker compose` instead of the deprecated Python `docker-compose` v1.
+
+Follow Docker's official guide for your OS:
+
+- <https://docs.docker.com/engine/install/ubuntu/>
+
+Ubuntu quick install summary:
+
+```bash
+sudo apt update
+sudo apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+If the server already has Docker data, back up volumes before changing packages:
+
+```bash
+sudo docker compose ps
+sudo docker run --rm -v mailgun-ses-proxy_proxy-db:/volume -v "$PWD":/backup alpine \
+  sh -c 'cd /volume && tar czf /backup/proxy-db-volume-backup.tgz .'
+```
+
+When replacing distro packages, use `apt remove` for conflicting packages. Avoid `apt purge docker.io` on an existing host unless you intentionally want to remove Docker package state and have already backed up all Docker volumes.
+
 ## Prebuilt Image
 
 Use the published image:
@@ -29,7 +69,7 @@ IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:latest
 For a pinned production deploy, prefer a version tag:
 
 ```bash
-IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.7
+IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.9
 ./scripts/compose-update.sh
 ```
 
@@ -64,6 +104,12 @@ Docker Compose v2 is recommended:
 
 ```bash
 docker compose version
+```
+
+Expected output should look like:
+
+```text
+Docker Compose version v2.x.x
 ```
 
 Some older servers still have the deprecated Python `docker-compose` v1. With modern Docker Engine versions, v1 can fail during container recreation with:

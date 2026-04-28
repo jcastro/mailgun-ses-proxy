@@ -36,6 +36,8 @@ The send queue should usually be empty after a batch completes.
 
 The event queue may briefly fill while SES sends delivery/open/bounce events, then drain.
 
+If the proxy was restored from an older database backup, or the local database was recreated, SES may still deliver older event messages for sends that no longer exist locally. The proxy retries these briefly in case it is a race condition, then discards them after the retry budget is exhausted so the queue can drain.
+
 Alarm-worthy states:
 
 - Send queue has visible messages for many minutes.
@@ -112,6 +114,8 @@ docker compose logs --tail=100 proxy
 ```
 
 The helper script uses Docker Compose v2 when available. On legacy `docker-compose` v1 servers, it automatically avoids the known `ContainerConfig` recreate bug by removing and recreating only the proxy container.
+
+For production hosts, install Docker Engine from Docker's official repository and use the Compose plugin (`docker compose`). See [docker.md](docker.md) for the install flow and backup warning before replacing distro Docker packages.
 
 Manual fallback if you are not using the helper:
 

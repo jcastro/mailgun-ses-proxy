@@ -36,9 +36,16 @@ export function createEventProcessor(config: EventProcessorConfig) {
         const dbMessage = await lookupMessage(result.messageId)
         
         if (!dbMessage) {
-            // If message not found, it might be a race condition. 
-            // Throwing triggers a retry without deleting from SQS.
-            throw new Error(`Message ${result.messageId} not found in DB, skipping for retry`)
+            // SES can deliver the event before our local send row is visible, or after
+            // a restore/retention cleanup removed the local row. Retry quietly first,
+            // then let the max-retry guard above delete stale events.
+            log.warn({
+                name,
+                messageId: result.messageId,
+                notificationId: result.notificationId,
+                receiveCount,
+            }, "Event parent message not found, leaving in queue for retry")
+            return "retry" as const
         }
 
         // Idempotent save (upsert)

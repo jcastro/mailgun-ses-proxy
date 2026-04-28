@@ -17,6 +17,12 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.9 - 2026-04-28
+
+- Changed SES event processing so events whose parent message is missing are retried quietly and then discarded after the retry budget, avoiding noisy SQS retry loops after restores or database retention cleanup.
+- Added regression coverage for stale SES event handling.
+- Updated Docker docs to recommend Docker's official Engine repository and Compose plugin, with backup guidance before replacing distro Docker packages.
+
 ## 2.1.8 - 2026-04-28
 
 - Added a detailed Amazon SES production-access request template based on a real approved Ghost migration use case.

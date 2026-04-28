@@ -7,7 +7,9 @@ Use this when you already have:
 - A self-hosted Ghost installation.
 - A domain managed in DNS.
 - An AWS account.
-- Docker on the server that will run the proxy.
+- Docker Engine with the Compose plugin on the server that will run the proxy.
+
+Install Docker from Docker's official repository where possible. On Ubuntu, follow Docker's guide: <https://docs.docker.com/engine/install/ubuntu/>. Avoid old `docker-compose` v1 packages on production hosts; this project expects `docker compose`.
 
 ## 1. Choose Names
 
@@ -106,6 +108,15 @@ Start it. The helper script uses Docker Compose v2 when available and safely wor
 ```bash
 ./scripts/compose-update.sh
 ```
+
+If you are setting up a new Ubuntu server, the recommended Docker check is:
+
+```bash
+docker --version
+docker compose version
+```
+
+Use Docker's official `docker-ce` and `docker-compose-plugin` packages. If you are replacing Ubuntu's `docker.io`, back up Docker volumes first and use `apt remove` rather than `apt purge` on existing hosts.
 
 Check health:
 
