@@ -17,6 +17,11 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.10 - 2026-04-28
+
+- Downgraded stale SES event discard logging from error to warning, because deleting an event after the retry budget is expected recovery behavior.
+- Updated the GitHub release workflow so future release notes include the matching `CHANGELOG.md` section automatically.
+
 ## 2.1.9 - 2026-04-28
 
 - Changed SES event processing so events whose parent message is missing are retried quietly and then discarded after the retry budget, avoiding noisy SQS retry loops after restores or database retention cleanup.

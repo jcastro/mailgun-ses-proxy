@@ -26,7 +26,7 @@ export function createEventProcessor(config: EventProcessorConfig) {
 
         const receiveCount = parseInt(message.Attributes?.ApproximateReceiveCount || "0")
         if (receiveCount > maxRetries) {
-            log.error({ name, messageId: message.MessageId, receiveCount }, "Event exceeded max retries, discarding")
+            log.warn({ name, messageId: message.MessageId, receiveCount }, "Event exceeded max retries, discarding")
             return // Returning success deletes the message from SQS
         }
 
