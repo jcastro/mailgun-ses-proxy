@@ -10,14 +10,17 @@ import {
     preparePayloadIterator,
 } from "../lib/core/aws-utils"
 import { safeStringify } from "../lib/core/common"
+import { normalizeEmailAddress } from "../lib/core/email-address"
 import logger from "../lib/core/logger"
 import { QUEUE_URL, sesNewsletterClient, sqsClient } from "./aws/awsHelper"
 import {
     createNewsletterBatchEntry,
     createNewsletterEntry,
     createNewsletterErrorEntry,
+    getActiveSuppressedRecipients,
     getNewsletterSentRecipients,
     getNewsletterContent,
+    saveNewsletterNotification,
     shouldPersistNewsletterFormattedContents,
 } from "./database/db"
 
@@ -155,9 +158,15 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
     const bulkEnabled = getBoolean(process.env.SES_BULK_SEND_ENABLED, true) && canPrepareBulkPayload(contents)
     const bulkSendSize = bulkEnabled ? getBulkSendSize(process.env.SES_BULK_SEND_SIZE) : 1
     const queue = new TaskQueue({ rateLimit, maxConcurrent })
+    const preparedEmails = Array.from(preparePayloadIterator(contents, siteId))
+    const suppressedRecipients = await getActiveSuppressedRecipients(
+        siteId,
+        preparedEmails.map(getPreparedToEmail)
+    )
 
     let queuedCount = 0
     let skippedCount = 0
+    let suppressedCount = 0
     let emailCount = 0
     let pendingBulkBatch: PreparedEmail[] = []
 
@@ -173,7 +182,7 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         ).catch(() => undefined)
     }
 
-    for (const prepared of preparePayloadIterator(contents, siteId)) {
+    for (const prepared of preparedEmails) {
         emailCount++
         const toEmail = getPreparedToEmail(prepared)
         if (!toEmail || alreadyQueuedOrSent.has(toEmail)) {
@@ -182,6 +191,12 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         }
 
         alreadyQueuedOrSent.add(toEmail)
+        const suppression = suppressedRecipients.get(normalizeEmailAddress(toEmail))
+        if (suppression) {
+            suppressedCount++
+            await recordSuppressedRecipient(prepared, suppression, newsletterBatchId, siteId, emailBatchId)
+            continue
+        }
 
         if (bulkSendSize > 1) {
             pendingBulkBatch.push(prepared)
@@ -200,6 +215,7 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         emailCount,
         queuedCount,
         skippedCount,
+        suppressedCount,
         bulkEnabled,
         bulkSendSize,
         emailBatchId
@@ -210,12 +226,66 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         sent: results.settledCount - results.failedCount,
         failed: results.failedCount,
         skipped: skippedCount,
+        suppressed: suppressedCount,
         durationMs: Math.round(results.totalDuration),
     }, "newsletter batch completed")
 
     if (results.failedCount > 0) {
         throw new Error(`${results.failedCount}/${queuedCount} emails failed in batch ${emailBatchId}`)
     }
+}
+
+async function recordSuppressedRecipient(
+    prepared: PreparedEmail,
+    suppression: { reason: string, source: string, failureCount: number },
+    newsletterBatchId: string,
+    siteId: string,
+    emailBatchId: string
+) {
+    const messageId = `proxy-suppressed-${randomUUID()}`
+    const now = new Date()
+    const { toEmail, recipientData, formattedContents } = getPreparedRecipientData(prepared)
+    const diagnosticCode = `Proxy local suppression: ${suppression.reason}`
+
+    await createNewsletterEntry(messageId, newsletterBatchId, toEmail, recipientData, formattedContents)
+    await saveNewsletterNotification({
+        notificationId: `proxy-suppressed-${messageId}`,
+        type: "failed",
+        messageId,
+        timestamp: now,
+        raw: JSON.stringify({
+            eventType: "Bounce",
+            mail: {
+                messageId,
+                timestamp: now.toISOString(),
+                destination: [toEmail],
+                tags: {
+                    siteId: [siteId],
+                    batchId: [emailBatchId],
+                    "ghost-email": ["true"],
+                },
+            },
+            bounce: {
+                timestamp: now.toISOString(),
+                bounceType: "Permanent",
+                bounceSubType: "Suppressed",
+                bouncedRecipients: [{
+                    emailAddress: toEmail,
+                    status: "5.7.1",
+                    diagnosticCode,
+                }],
+            },
+        }),
+    })
+
+    log.warn({
+        toEmail,
+        siteId,
+        emailBatchId,
+        reason: suppression.reason,
+        source: suppression.source,
+        failureCount: suppression.failureCount,
+    }, "recipient skipped due to local suppression")
 }
 
 // ─── Internal: SES Send Helpers ──────────────────────────────

@@ -66,6 +66,26 @@ model NewsletterNotifications {
   @@index([timestamp])
 }
 
+model SuppressedRecipient {
+  id                    String   @id @default(uuid())
+  siteId                String   @db.VarChar(191)
+  email                 String   @db.VarChar(320)
+  reason                String   @db.VarChar(191)
+  source                String   @db.VarChar(64)
+  active                Boolean  @default(true)
+  failureCount          Int      @default(0)
+  lastEventType         String?  @db.VarChar(64)
+  lastMessageId         String?  @db.VarChar(255)
+  lastNewsletterBatchId String?  @db.VarChar(191)
+  metadata              String?  @db.LongText
+  created               DateTime @default(now())
+  updated               DateTime @updatedAt
+
+  @@unique([siteId, email])
+  @@index([siteId, active])
+  @@index([email])
+}
+
 model SystemMailNotifications {
   id             String      @id @default(uuid())
   type           String

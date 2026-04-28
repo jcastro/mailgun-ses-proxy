@@ -313,6 +313,14 @@ export interface NotificationEvent {
     raw: any
 }
 
+export interface SuppressionDecision {
+    shouldSuppress: boolean
+    incrementFailureCount: boolean
+    reason: string
+    source: string
+    metadata?: unknown
+}
+
 type SESEventPayload = {
     eventType: keyof typeof awsToMailgunType
     mail: {
@@ -364,6 +372,62 @@ function tryUnwrapSnsEvent(inputEvent: string): SESEventPayload | null {
     } catch {
         return null
     }
+}
+
+export function classifyNotificationSuppression(event: NotificationEvent): SuppressionDecision | null {
+    const originalSESEvent = tryUnwrapSnsEvent(event.raw)
+    if (!originalSESEvent) return null
+
+    if (originalSESEvent.eventType === "Complaint") {
+        return {
+            shouldSuppress: true,
+            incrementFailureCount: false,
+            reason: originalSESEvent.complaint?.complaintFeedbackType || "complained",
+            source: "ses-complaint",
+            metadata: originalSESEvent.complaint || {},
+        }
+    }
+
+    if (originalSESEvent.eventType === "Bounce") {
+        const bounceType = originalSESEvent.bounce?.bounceType || "Permanent"
+        const bounceRecipient = getBounceRecipient(originalSESEvent)
+        const metadata = {
+            bounceType,
+            bounceSubType: originalSESEvent.bounce?.bounceSubType,
+            status: bounceRecipient?.status,
+            diagnosticCode: bounceRecipient?.diagnosticCode,
+        }
+
+        if (bounceType === "Transient") {
+            return {
+                shouldSuppress: false,
+                incrementFailureCount: true,
+                reason: "transient-bounce",
+                source: "ses-transient-bounce",
+                metadata,
+            }
+        }
+
+        return {
+            shouldSuppress: true,
+            incrementFailureCount: false,
+            reason: originalSESEvent.bounce?.bounceSubType || "permanent-bounce",
+            source: "ses-permanent-bounce",
+            metadata,
+        }
+    }
+
+    if (originalSESEvent.eventType === "Subscription") {
+        return {
+            shouldSuppress: true,
+            incrementFailureCount: false,
+            reason: originalSESEvent.subscription?.topicName || "unsubscribed",
+            source: "ses-subscription",
+            metadata: originalSESEvent.subscription || {},
+        }
+    }
+
+    return null
 }
 
 function normalizeEventTimestamp(value: string | Date | undefined, fallback = new Date()) {

@@ -121,6 +121,58 @@ describe("Ghost/Mailgun payload compatibility regressions", () => {
         expect(canPrepareBulkPayload(input)).toBe(false)
         expect(prepareBulkEmailRequest(input, preparePayload(input, "example.com"))).toBeNull()
     })
+
+    it("classifies complaints and permanent bounces for local suppression", async () => {
+        const { classifyNotificationSuppression, parseNotificationEvent } = await import("@/lib/core/aws-utils")
+
+        const complaint = parseNotificationEvent("notif-complaint", JSON.stringify({
+            eventType: "Complaint",
+            mail: { messageId: "ses-msg-complaint", timestamp: "2025-06-15T10:30:00Z" },
+            complaint: { complaintFeedbackType: "abuse" },
+        }))
+        const bounce = parseNotificationEvent("notif-bounce", JSON.stringify({
+            eventType: "Bounce",
+            mail: { messageId: "ses-msg-bounce", timestamp: "2025-06-15T10:30:00Z" },
+            bounce: {
+                bounceType: "Permanent",
+                bounceSubType: "General",
+                bouncedRecipients: [{ status: "5.1.1" }],
+            },
+        }))
+
+        expect(classifyNotificationSuppression(complaint)).toMatchObject({
+            shouldSuppress: true,
+            incrementFailureCount: false,
+            source: "ses-complaint",
+            reason: "abuse",
+        })
+        expect(classifyNotificationSuppression(bounce)).toMatchObject({
+            shouldSuppress: true,
+            incrementFailureCount: false,
+            source: "ses-permanent-bounce",
+            reason: "General",
+        })
+    })
+
+    it("counts transient bounces without suppressing until the threshold is reached", async () => {
+        const { classifyNotificationSuppression, parseNotificationEvent } = await import("@/lib/core/aws-utils")
+
+        const event = parseNotificationEvent("notif-transient", JSON.stringify({
+            eventType: "Bounce",
+            mail: { messageId: "ses-msg-transient", timestamp: "2025-06-15T10:30:00Z" },
+            bounce: {
+                bounceType: "Transient",
+                bouncedRecipients: [{ status: "4.4.7" }],
+            },
+        }))
+
+        expect(classifyNotificationSuppression(event)).toMatchObject({
+            shouldSuppress: false,
+            incrementFailureCount: true,
+            source: "ses-transient-bounce",
+            reason: "transient-bounce",
+        })
+    })
 })
 
 describe("Mailgun event API regressions", () => {

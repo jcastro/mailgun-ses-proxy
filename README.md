@@ -255,6 +255,17 @@ The events endpoint supports the query shape Ghost uses with Mailgun:
 
 Returned events include Ghost/Mailgun fields such as `user-variables.email-id`, `message.headers.message-id`, `delivery-status`, `severity`, `reason`, `recipient-domain`, `tags`, click URL, and client info where SES provides it. The Mailgun `message-id` stays aligned with Ghost's stored batch provider id; the SES message id is exposed separately as `x-ses-message-id`.
 
+### Local Suppression Handling
+
+The proxy maintains a local suppression list to protect SES reputation before Ghost sends future newsletters:
+
+- SES complaints are suppressed immediately.
+- Permanent SES bounces are suppressed immediately.
+- Transient bounces increment a per-recipient counter and are suppressed after `SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD` failures, default `3`.
+- Future newsletter sends skip locally suppressed recipients and create a Mailgun-compatible `failed` event for Ghost analytics instead of calling SES again.
+
+This does not delete members from Ghost. It only prevents future sends to recipients that have complained or repeatedly failed delivery.
+
 ### Large Newsletter Batches
 
 The proxy is designed for large Ghost newsletter batches. For 5,000+ recipients:
@@ -266,6 +277,7 @@ The proxy is designed for large Ghost newsletter batches. For 5,000+ recipients:
 - `NEWSLETTER_VISIBILITY_TIMEOUT` should be longer than the expected batch duration. For example, 5,000 recipients at `RATE_LIMIT=10` takes roughly 500 seconds before retries and network latency, so the default `3600` seconds leaves comfortable room.
 - `SQS_EVENT_RECEIVE_BATCH_SIZE=10` reduces SQS receive/delete API calls for SES event queues.
 - Sent recipients are loaded once per batch and duplicate/already-sent recipients are skipped before enqueuing, which avoids one database lookup per recipient during retries.
+- Locally suppressed recipients are loaded once per batch and skipped before SES calls, reducing cost and protecting reputation.
 
 ## Monitoring & Logging
 
@@ -306,6 +318,7 @@ Monitor email delivery through the database tables:
 - `NewsletterMessages` - Individual email messages
 - `NewsletterErrors` - Failed email attempts
 - `NewsletterNotifications` - SES delivery events
+- `SuppressedRecipient` - Local complaint/bounce suppression state
 
 ### Newsletter HTML Persistence
 

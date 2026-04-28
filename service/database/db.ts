@@ -1,6 +1,7 @@
 import { MailgunMessage } from "@/types/mailgun"
 import { NotificationEvent } from "../../lib/core/aws-utils"
 import { safeStringify } from "../../lib/core/common"
+import { normalizeEmailAddress, uniqueNormalizedEmails } from "../../lib/core/email-address"
 import { prisma } from "../../lib/database"
 export { prisma }
 
@@ -103,6 +104,95 @@ export async function getNewsletterSentRecipients(batchId: string) {
     return new Set(rows.map(row => row.toEmail))
 }
 
+export async function getActiveSuppressedRecipients(siteId: string, emails: string[]) {
+    const normalizedEmails = uniqueNormalizedEmails(emails)
+    const result = new Map<string, {
+        email: string
+        reason: string
+        source: string
+        failureCount: number
+    }>()
+
+    for (let index = 0; index < normalizedEmails.length; index += 1000) {
+        const chunk = normalizedEmails.slice(index, index + 1000)
+        if (!chunk.length) continue
+
+        const rows = await prisma.suppressedRecipient.findMany({
+            where: {
+                siteId,
+                active: true,
+                email: { in: chunk },
+            },
+            select: {
+                email: true,
+                reason: true,
+                source: true,
+                failureCount: true,
+            },
+        })
+
+        for (const row of rows) {
+            result.set(normalizeEmailAddress(row.email), row)
+        }
+    }
+
+    return result
+}
+
+export async function upsertRecipientSuppression({
+    siteId,
+    email,
+    reason,
+    source,
+    active,
+    incrementFailureCount = false,
+    activateAtFailureCount,
+    lastEventType,
+    lastMessageId,
+    lastNewsletterBatchId,
+    metadata,
+}: {
+    siteId: string
+    email: string
+    reason: string
+    source: string
+    active: boolean
+    incrementFailureCount?: boolean
+    activateAtFailureCount?: number
+    lastEventType?: string
+    lastMessageId?: string
+    lastNewsletterBatchId?: string
+    metadata?: unknown
+}) {
+    const normalizedEmail = normalizeEmailAddress(email)
+    const existing = await prisma.suppressedRecipient.findUnique({
+        where: { siteId_email: { siteId, email: normalizedEmail } },
+        select: { failureCount: true },
+    })
+    const failureCount = incrementFailureCount ? (existing?.failureCount || 0) + 1 : (existing?.failureCount || 0)
+    const shouldActivate = active || (activateAtFailureCount !== undefined && failureCount >= activateAtFailureCount)
+    const data = {
+        reason: shouldActivate && incrementFailureCount ? "transient-bounce-threshold" : reason,
+        source,
+        active: shouldActivate,
+        failureCount,
+        lastEventType,
+        lastMessageId,
+        lastNewsletterBatchId,
+        metadata: metadata === undefined ? undefined : safeStringify(metadata),
+    }
+
+    return prisma.suppressedRecipient.upsert({
+        where: { siteId_email: { siteId, email: normalizedEmail } },
+        create: {
+            siteId,
+            email: normalizedEmail,
+            ...data,
+        },
+        update: data,
+    })
+}
+
 export async function getNewsletterContent(newsletterBatchId: string) {
     const result = await prisma.newsletterBatch.findUnique({
         where: { id: newsletterBatchId },
@@ -129,6 +219,20 @@ export async function saveSystemEmailEvent(event: NotificationEvent) {
 export async function getNewsletterMessage(messageId: string) {
     return prisma.newsletterMessages.findUnique({
         where: { messageId }
+    })
+}
+
+export async function getNewsletterMessageForSuppression(messageId: string) {
+    return prisma.newsletterMessages.findUnique({
+        where: { messageId },
+        include: {
+            newsletterBatch: {
+                select: {
+                    id: true,
+                    siteId: true,
+                },
+            },
+        },
     })
 }
 

@@ -7,8 +7,10 @@ async function loadNewsletterService() {
     const createNewsletterBatchEntry = vi.fn()
     const createNewsletterEntry = vi.fn()
     const createNewsletterErrorEntry = vi.fn()
+    const saveNewsletterNotification = vi.fn()
     const getNewsletterContent = vi.fn()
     const getNewsletterSentRecipients = vi.fn().mockResolvedValue(new Set())
+    const getActiveSuppressedRecipients = vi.fn().mockResolvedValue(new Map())
     const sqsSend = vi.fn()
     const sesSend = vi.fn()
 
@@ -16,8 +18,10 @@ async function loadNewsletterService() {
         createNewsletterBatchEntry,
         createNewsletterEntry,
         createNewsletterErrorEntry,
+        saveNewsletterNotification,
         checkNewsletterAlreadySent: vi.fn(),
         getNewsletterSentRecipients,
+        getActiveSuppressedRecipients,
         getNewsletterContent,
         shouldPersistNewsletterFormattedContents: vi.fn().mockReturnValue(false),
     }))
@@ -34,8 +38,10 @@ async function loadNewsletterService() {
         createNewsletterBatchEntry,
         createNewsletterEntry,
         createNewsletterErrorEntry,
+        saveNewsletterNotification,
         getNewsletterContent,
         getNewsletterSentRecipients,
+        getActiveSuppressedRecipients,
         sqsSend,
         sesSend,
     }
@@ -128,6 +134,64 @@ describe("Newsletter service regressions", () => {
             "new@example.com",
             "other@example.com",
         ])
+    })
+
+    it("skips locally suppressed recipients and records a Mailgun-compatible failed event", async () => {
+        vi.stubEnv("RATE_LIMIT", "1000000")
+        vi.stubEnv("MAX_CONCURRENT", "5000")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "false")
+
+        const {
+            service,
+            createNewsletterEntry,
+            saveNewsletterNotification,
+            getNewsletterContent,
+            getActiveSuppressedRecipients,
+            sesSend,
+        } = await loadNewsletterService()
+
+        getNewsletterContent.mockResolvedValue({
+            from: "newsletter@example.com",
+            to: [
+                "blocked@example.com",
+                "reader@example.com",
+            ],
+            subject: "Weekly",
+            html: "<p>Hello</p>",
+            "v:email-id": "ghost-email-id",
+        })
+        getActiveSuppressedRecipients.mockResolvedValue(new Map([
+            ["blocked@example.com", {
+                email: "blocked@example.com",
+                reason: "complained",
+                source: "ses-complaint",
+                failureCount: 0,
+            }],
+        ]))
+        sesSend.mockResolvedValue({ MessageId: "ses-reader" })
+
+        const result = await service.validateAndSend({
+            Body: "newsletter-batch-db-id",
+            ReceiptHandle: "receipt-handle",
+            MessageAttributes: {
+                siteId: { StringValue: "site-123", DataType: "String" },
+                from: { StringValue: "newsletter@example.com", DataType: "String" },
+            },
+            Attributes: { ApproximateReceiveCount: "1" },
+        } as any)
+
+        expect(result).toBe("delete")
+        expect(sesSend).toHaveBeenCalledTimes(1)
+        expect(createNewsletterEntry).toHaveBeenCalledTimes(2)
+        expect(createNewsletterEntry.mock.calls.map(call => call[2]).sort()).toEqual([
+            "blocked@example.com",
+            "reader@example.com",
+        ])
+        expect(saveNewsletterNotification).toHaveBeenCalledTimes(1)
+        expect(saveNewsletterNotification.mock.calls[0][0]).toMatchObject({
+            type: "failed",
+        })
+        expect(saveNewsletterNotification.mock.calls[0][0].messageId).toMatch(/^proxy-suppressed-/)
     })
 
     it("uses SES bulk sends for compatible newsletter batches while preserving per-recipient message ids", async () => {
