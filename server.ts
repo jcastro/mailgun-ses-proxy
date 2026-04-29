@@ -27,9 +27,15 @@ app.prepare().then(() => {
     const type = dev ? "development" : process.env.NODE_ENV
     logger.info(`> Server listening at http://localhost:${port} as ${type}`)
 
-    const startBackgroundWorker = (name: string, queueUrl: string | undefined, worker: () => Promise<void>) => {
+    const startBackgroundWorker = (
+        name: string,
+        queueUrl: string | undefined,
+        worker: () => Promise<void>,
+        options: { required?: boolean } = { required: true }
+    ) => {
         if (!queueUrl) {
-            logger.warn({ name }, "Skipping SQS worker because no queue URL is configured")
+            const log = options.required === false ? logger.info.bind(logger) : logger.warn.bind(logger)
+            log({ name }, "Skipping SQS worker because no queue URL is configured")
             return
         }
 
@@ -41,6 +47,6 @@ app.prepare().then(() => {
     // Process only the queues configured for this deployment.
     startBackgroundWorker("newsletter", process.env.NEWSLETTER_QUEUE, processNewsletterQueue)
     startBackgroundWorker("newsletter events", process.env.NEWSLETTER_NOTIFICATION_QUEUE, processNewsletterEventsQueue)
-    startBackgroundWorker("system events", process.env.TRANSACTIONAL_NOTIFICATION_QUEUE, processSystemEventsQueue)
+    startBackgroundWorker("system events", process.env.TRANSACTIONAL_NOTIFICATION_QUEUE, processSystemEventsQueue, { required: false })
 
 }).catch((e) => { logger.error(e, "stopping the server."); process.exit(1) })

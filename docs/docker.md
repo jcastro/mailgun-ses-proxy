@@ -69,7 +69,7 @@ IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:latest
 For a pinned production deploy, prefer a version tag:
 
 ```bash
-IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.10
+IMAGE=ghcr.io/jcastro/mailgun-ses-proxy:v2.1.11
 ./scripts/compose-update.sh
 ```
 

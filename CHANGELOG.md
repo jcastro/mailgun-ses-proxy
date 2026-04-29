@@ -17,6 +17,11 @@ Pushing a `v*` tag runs tests, builds the Docker image, publishes these image ta
 - `ghcr.io/jcastro/mailgun-ses-proxy:<version>`
 - `ghcr.io/jcastro/mailgun-ses-proxy:latest`
 
+## 2.1.11 - 2026-04-29
+
+- Treat the transactional SES event queue as optional at startup, logging its absence as informational instead of warning noise.
+- Keeps warnings reserved for missing required newsletter queues and real processing problems.
+
 ## 2.1.10 - 2026-04-28
 
 - Downgraded stale SES event discard logging from error to warning, because deleting an event after the retry budget is expected recovery behavior.
