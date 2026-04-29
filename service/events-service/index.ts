@@ -13,6 +13,5 @@ async function saveNewsletterNotificationWithSuppression(event: Parameters<typeo
 export const handleNewsletterEmailEvent = createEventProcessor({
     name: "newsletter-events",
     lookupMessage: getNewsletterMessage,
-    saveNotification: saveNewsletterNotificationWithSuppression,
-    maxRetries: 3
+    saveNotification: saveNewsletterNotificationWithSuppression
 })

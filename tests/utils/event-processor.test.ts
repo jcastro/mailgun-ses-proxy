@@ -1,20 +1,24 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createEventProcessor } from "@/lib/core/event-processor"
 
-function sesEvent(messageId = "ses-message-id") {
+function sesEvent(messageId = "ses-message-id", timestamp = new Date().toISOString()) {
     return JSON.stringify({
         eventType: "Delivery",
         mail: {
             messageId,
-            timestamp: "2026-04-28T08:00:00.000Z",
+            timestamp,
         },
         delivery: {
-            timestamp: "2026-04-28T08:00:01.000Z",
+            timestamp,
         },
     })
 }
 
 describe("SES event processor", () => {
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
     it("retries quietly when an event arrives before the local message row exists", async () => {
         const lookupMessage = vi.fn(async () => null)
         const saveNotification = vi.fn()
@@ -57,6 +61,32 @@ describe("SES event processor", () => {
 
         expect(result).toBeUndefined()
         expect(lookupMessage).not.toHaveBeenCalled()
+        expect(saveNotification).not.toHaveBeenCalled()
+    })
+
+    it("deletes orphaned events that are older than the retry window", async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date("2026-04-28T08:10:00.000Z"))
+
+        const lookupMessage = vi.fn(async () => null)
+        const saveNotification = vi.fn()
+        const handler = createEventProcessor({
+            name: "newsletter-events",
+            lookupMessage,
+            saveNotification,
+            missingParentRetrySeconds: 120,
+        })
+
+        const result = await handler({
+            MessageId: "notification-stale",
+            Body: sesEvent("stale-ses-message-id", "2026-04-28T08:00:00.000Z"),
+            Attributes: {
+                ApproximateReceiveCount: "1",
+            },
+        } as any)
+
+        expect(result).toBeUndefined()
+        expect(lookupMessage).toHaveBeenCalledWith("stale-ses-message-id")
         expect(saveNotification).not.toHaveBeenCalled()
     })
 

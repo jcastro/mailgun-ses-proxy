@@ -7,6 +7,5 @@ import { getSystemMessage, saveSystemEmailEvent } from "./database/db"
 export const handleSystemEmailEvent = createEventProcessor({
     name: "system-events",
     lookupMessage: getSystemMessage,
-    saveNotification: saveSystemEmailEvent,
-    maxRetries: 3
+    saveNotification: saveSystemEmailEvent
 })

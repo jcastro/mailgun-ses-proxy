@@ -2,6 +2,12 @@
 
 All notable changes are tracked through GitHub Releases.
 
+## Unreleased
+
+- Reduced warning noise from stale SES event notifications whose local message row no longer exists.
+- Added `EVENT_MISSING_PARENT_RETRY_SECONDS` and `EVENT_MAX_RETRIES` tuning knobs for event queue retry behavior.
+- Added regression coverage for stale orphan event cleanup.
+
 ## Release process
 
 Create a version tag with one of:

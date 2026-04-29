@@ -58,6 +58,7 @@ Rules:
 - Permanent `Bounce` events are suppressed immediately.
 - Transient `Bounce` events increment `failureCount`.
 - Transient bounces become active suppressions after `SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD`, default `3`.
+- SES events whose local message row is missing are retried briefly, then discarded as stale orphans after `EVENT_MISSING_PARENT_RETRY_SECONDS`, default `120`.
 
 Suppressed members are not deleted from Ghost. Future sends are skipped locally and Ghost receives a compatible `failed` event.
 

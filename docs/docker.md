@@ -141,6 +141,8 @@ NEWSLETTER_VISIBILITY_TIMEOUT=3600
 SES_BULK_SEND_ENABLED=true
 SES_BULK_SEND_SIZE=10
 SQS_EVENT_RECEIVE_BATCH_SIZE=10
+EVENT_MAX_RETRIES=3
+EVENT_MISSING_PARENT_RETRY_SECONDS=120
 SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD=3
 ```
 
@@ -151,6 +153,8 @@ When `SES_BULK_SEND_ENABLED` is enabled, compatible Ghost newsletter payloads ar
 SES supports up to 50 recipients per bulk request, but accounts with lower send rates can be constrained by that send rate. Keep `SES_BULK_SEND_SIZE` at or below your SES maximum send rate unless you have tested larger bursts safely.
 
 `SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD` controls how many transient bounces are tolerated before a recipient is locally suppressed. Complaints and permanent bounces are suppressed immediately.
+
+`EVENT_MISSING_PARENT_RETRY_SECONDS` controls how long an SES event whose local message row is missing should be retried. Fresh events can race the database briefly; old orphan events are discarded quietly after this window so logs stay useful after restores, test runs, or retention cleanup.
 
 ## Healthcheck
 
