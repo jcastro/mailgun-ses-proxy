@@ -2,7 +2,7 @@
 
 All notable changes are tracked through GitHub Releases.
 
-## Unreleased
+## 2.1.12 - 2026-04-30
 
 - Reduced warning noise from stale SES event notifications whose local message row no longer exists.
 - Added `EVENT_MISSING_PARENT_RETRY_SECONDS` and `EVENT_MAX_RETRIES` tuning knobs for event queue retry behavior.
