@@ -8,6 +8,7 @@ interface EventProcessorConfig {
     name: string
     lookupMessage: (messageId: string) => Promise<any>
     saveNotification: (event: NotificationEvent) => Promise<any>
+    shouldProcessEvent?: (event: NotificationEvent) => boolean
     maxRetries?: number
     missingParentRetrySeconds?: number
 }
@@ -38,6 +39,7 @@ export function createEventProcessor(config: EventProcessorConfig) {
         name,
         lookupMessage,
         saveNotification,
+        shouldProcessEvent,
         maxRetries = getPositiveInteger(process.env.EVENT_MAX_RETRIES, 3),
         missingParentRetrySeconds = getNonNegativeNumber(process.env.EVENT_MISSING_PARENT_RETRY_SECONDS, 120),
     } = config
@@ -55,6 +57,17 @@ export function createEventProcessor(config: EventProcessorConfig) {
         }
 
         const result = parseNotificationEvent(message.MessageId, message.Body)
+
+        if (shouldProcessEvent && !shouldProcessEvent(result)) {
+            log.info({
+                name,
+                messageId: result.messageId,
+                notificationId: result.notificationId,
+                type: result.type,
+                tagNames: Object.keys(result.tags),
+            }, "Event does not belong to this processor, discarding")
+            return
+        }
         
         // Check if the parent message exists in our DB
         const dbMessage = await lookupMessage(result.messageId)

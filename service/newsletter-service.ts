@@ -248,22 +248,25 @@ async function recordSuppressedRecipient(
     const diagnosticCode = `Proxy local suppression: ${suppression.reason}`
 
     await createNewsletterEntry(messageId, newsletterBatchId, toEmail, recipientData, formattedContents)
+    const tags = {
+        siteId: [siteId],
+        batchId: [emailBatchId],
+        "ghost-email": ["true"],
+    }
+
     await saveNewsletterNotification({
         notificationId: `proxy-suppressed-${messageId}`,
         type: "failed",
         messageId,
         timestamp: now,
+        tags,
         raw: JSON.stringify({
             eventType: "Bounce",
             mail: {
                 messageId,
                 timestamp: now.toISOString(),
                 destination: [toEmail],
-                tags: {
-                    siteId: [siteId],
-                    batchId: [emailBatchId],
-                    "ghost-email": ["true"],
-                },
+                tags,
             },
             bounce: {
                 timestamp: now.toISOString(),

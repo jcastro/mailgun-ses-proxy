@@ -2,6 +2,12 @@
 
 All notable changes are tracked through GitHub Releases.
 
+## 2.1.13 - 2026-05-10
+
+- Added SES tag normalization to event parsing so processors can distinguish Ghost newsletter events from unrelated SMTP traffic.
+- Changed the newsletter event worker to discard non-Ghost-newsletter SES events without retrying or logging them as orphaned records.
+- Added regression coverage for direct SMTP events, such as Discourse notification emails, sharing the same SES event queue.
+
 ## 2.1.12 - 2026-04-30
 
 - Reduced warning noise from stale SES event notifications whose local message row no longer exists.

@@ -310,6 +310,7 @@ export interface NotificationEvent {
     type: string
     messageId: string
     timestamp: Date
+    tags: Record<string, string[]>
     raw: any
 }
 
@@ -451,6 +452,22 @@ function getEventTimestamp(event: SESEventPayload) {
         || event.mail.timestamp
 }
 
+function normalizeSESTags(event: SESEventPayload) {
+    const tags = event.mail?.tags
+    if (!tags || typeof tags !== "object") return {}
+
+    return Object.fromEntries(
+        Object.entries(tags)
+            .map(([key, value]) => [
+                key,
+                (Array.isArray(value) ? value : [value])
+                    .map(String)
+                    .filter(Boolean),
+            ])
+            .filter(([, values]) => values.length > 0)
+    )
+}
+
 function getRecipientDomain(recipient: string) {
     const domain = recipient.split("@")[1]
     return domain || undefined
@@ -520,6 +537,7 @@ export function parseNotificationEvent(messageId: string, inputEvent: string): N
         type: String(mailgunType).toLocaleLowerCase(),
         messageId: event.mail.messageId.replace(/^<|>$/g, "").split("@")[0],
         timestamp: normalizeEventTimestamp(getEventTimestamp(event), new Date()),
+        tags: normalizeSESTags(event),
         raw: inputEvent,
     }
 }
