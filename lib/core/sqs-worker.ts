@@ -16,6 +16,7 @@ interface WorkerConfig {
     queueUrl: string
     visibilityTimeout?: number
     waitTimeSeconds?: number
+    pollTimeoutSeconds?: number
     receiveBatchSize?: number
     messageAttributeNames?: string[]
     systemAttributeNames?: MessageSystemAttributeName[]
@@ -27,6 +28,11 @@ function clampReceiveBatchSize(value: unknown) {
     const parsed = Number(value)
     if (!Number.isFinite(parsed)) return 10
     return Math.min(10, Math.max(1, Math.floor(parsed)))
+}
+
+function getPositiveNumber(value: unknown, fallback: number) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 function shouldDeleteMessage(result: WorkerHandlerResult) {
@@ -63,6 +69,10 @@ export async function startWorker(config: WorkerConfig) {
         queueUrl, 
         visibilityTimeout = 30, 
         waitTimeSeconds = 20, 
+        pollTimeoutSeconds = getPositiveNumber(
+            process.env.SQS_POLL_TIMEOUT_SECONDS,
+            Math.max(waitTimeSeconds + 15, 30)
+        ),
         receiveBatchSize = 10,
         messageAttributeNames = [],
         systemAttributeNames = [MessageSystemAttributeName.ApproximateReceiveCount],
@@ -87,13 +97,19 @@ export async function startWorker(config: WorkerConfig) {
         WaitTimeSeconds: waitTimeSeconds,
     }
 
-    const receiveCommand = new ReceiveMessageCommand(input)
     let pollCount = 0
 
     while (pollCount < maxPolls) {
         pollCount++
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), pollTimeoutSeconds * 1000)
+        timeout.unref?.()
+
         try {
-            const { Messages } = await client.send(receiveCommand)
+            const receiveCommand = new ReceiveMessageCommand(input)
+            const { Messages } = await client.send(receiveCommand, {
+                abortSignal: controller.signal,
+            })
             
             if (!Messages || Messages.length === 0) continue
 
@@ -112,9 +128,16 @@ export async function startWorker(config: WorkerConfig) {
 
             await deleteMessages(queueUrl, processedMessages)
         } catch (error) {
-            log.error({ name, error }, "Error polling SQS")
+            const isAbortError = error instanceof Error && error.name === "AbortError"
+            if (isAbortError) {
+                log.warn({ name, pollTimeoutSeconds }, "SQS poll timed out, retrying")
+            } else {
+                log.error({ name, error }, "Error polling SQS")
+            }
             // exponential backoff or simple delay on polling error
             await new Promise(resolve => setTimeout(resolve, 5000))
+        } finally {
+            clearTimeout(timeout)
         }
     }
 }

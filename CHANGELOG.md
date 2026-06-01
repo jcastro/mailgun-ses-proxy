@@ -2,6 +2,12 @@
 
 All notable changes are tracked through GitHub Releases.
 
+## 2.1.14 - 2026-06-01
+
+- Added a timeout around each SQS long-poll request so event workers recover if an AWS SDK receive call hangs.
+- Recreated the SQS receive command on every poll cycle instead of reusing a single command object indefinitely.
+- Added explicit warning logs when an SQS poll times out and is retried.
+
 ## 2.1.13 - 2026-05-10
 
 - Added SES tag normalization to event parsing so processors can distinguish Ghost newsletter events from unrelated SMTP traffic.
