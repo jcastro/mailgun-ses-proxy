@@ -4,6 +4,9 @@ All notable changes are tracked through GitHub Releases.
 
 ## Unreleased
 
+- Close extension-based API authentication bypasses and verify dashboard JWT signatures at the shared request boundary.
+- Remove default dashboard credentials and public credential replacement; require explicit provisioning and operator-only legacy recovery. Add bounded login throttling and secure production cookies.
+- Preserve existing password hashes and signing-secret bytes; support Unicode session names and reject malformed/expired sessions.
 - Return 503 for newsletter queue/database outages and keep 400 for invalid input; redact internal error messages from send APIs.
 - Replace ineffective dashboard configuration writes with an authenticated, read-only view of the actual deployment variable names. Existing database settings are retained but unused.
 
