@@ -4,6 +4,9 @@ All notable changes are tracked through GitHub Releases.
 
 ## Unreleased
 
+- Stream newsletter personalization through a bounded send window and defer large HTML/text substitution for SES bulk sends, reducing peak memory for 5,000+ recipients.
+- Prevent fractional concurrency values below one from stalling the task queue.
+- Keep recipient-weighted rate limiting active even for rates of 1,000 or more; release completed task payload references promptly and drain accepted work before returning a retry on producer failure.
 - Refresh supported runtime dependencies, including Next.js security patches; Docker now installs the same npm lockfile tested in CI instead of a separate Bun dependency graph.
 - Build and smoke-test the Docker image with an isolated MySQL database on every pull request, without publishing it.
 - Close extension-based API authentication bypasses and verify dashboard JWT signatures at the shared request boundary.

@@ -182,9 +182,21 @@ export interface PreparedEmail {
     recipientVariables: RecipientVariables
 }
 
-export function* preparePayloadIterator(input: any, siteId: string): Generator<PreparedEmail> {
+type PreparePayloadOptions = { deferContent?: boolean }
+
+export function getRecipientAddresses(input: any) {
+    return asAddressList(input.to) || []
+}
+
+function deferredData(value: string | undefined, variables: RecipientVariables, defer: boolean) {
+    if (!defer) return { Data: doSubstitution(value, variables) }
+    let rendered: string | undefined
+    return { get Data() { return rendered ??= doSubstitution(value, variables) } }
+}
+
+export function* preparePayloadIterator(input: any, siteId: string, options: PreparePayloadOptions = {}): Generator<PreparedEmail> {
     const recepientVariables = parseRecipientVariables(input["recipient-variables"])
-    const receivers = asAddressList(input.to) || []
+    const receivers = getRecipientAddresses(input)
     const replyTo = asAddressList(input["h:Reply-To"])
     const cc = asAddressList(input["h:Cc"])
     const bcc = asAddressList(input["h:Bcc"])
@@ -210,16 +222,10 @@ export function* preparePayloadIterator(input: any, siteId: string): Generator<P
             ...(replyTo ? { ReplyToAddresses: replyTo } : {}),
             Content: {
                 Simple: {
-                    Subject: {
-                        Data: doSubstitution(input.subject, recipientVariables),
-                    },
+                    Subject: deferredData(input.subject, recipientVariables, options.deferContent === true),
                     Body: {
-                        Text: {
-                            Data: doSubstitution(input.text, recipientVariables),
-                        },
-                        Html: {
-                            Data: doSubstitution(input.html, recipientVariables),
-                        },
+                        Text: deferredData(input.text, recipientVariables, options.deferContent === true),
+                        Html: deferredData(input.html, recipientVariables, options.deferContent === true),
                     },
                     ...(headers.length ? { Headers: headers } : {}),
                 },

@@ -48,8 +48,9 @@ export class TaskQueue {
   private max: StatsEntry = { item: null, time: -Infinity };
 
   // Optimization: Pointer-based queue avoids O(n) array re-indexing
-  private queue: ItemWrapper[] = [];
+  private queue: (ItemWrapper | undefined)[] = [];
   private head = 0;
+  private nextStartAt = 0;
 
   private runningCount = 0;
   private isProcessing = false;
@@ -60,10 +61,10 @@ export class TaskQueue {
   constructor({ rateLimit = 25, maxConcurrent = 100 }: QueueOptions = {}) {
     const safeRateLimit = Number.isFinite(rateLimit) && rateLimit > 0 ? rateLimit : 25;
     const safeMaxConcurrent = Number.isFinite(maxConcurrent) && maxConcurrent > 0
-      ? Math.floor(maxConcurrent)
+      ? Math.max(1, Math.floor(maxConcurrent))
       : 100;
 
-    this.rateLimitDelay = safeRateLimit >= 1000 ? 0 : 1000 / safeRateLimit;
+    this.rateLimitDelay = 1000 / safeRateLimit;
     this.maxConcurrent = safeMaxConcurrent;
   }
 
@@ -146,15 +147,19 @@ export class TaskQueue {
         return;
       }
 
-      const item = this.queue[this.head++];
+      const delayMs = this.nextStartAt - performance.now();
+      if (delayMs >= 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      const item = this.queue[this.head];
+      this.queue[this.head++] = undefined;
+      if (!item) continue;
       this.runningCount++;
+      this.nextStartAt = Math.max(this.nextStartAt, performance.now()) + this.rateLimitDelay * item.weight;
 
       this.executeTask(item);
-
-      const delayMs = this.rateLimitDelay * item.weight;
-      if (delayMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
 
       // Periodic memory cleanup for very large queues
       if (this.head > 1000) {

@@ -2,6 +2,14 @@
 
 This page covers day-to-day checks after the proxy is live.
 
+## Large newsletters
+
+The producer keeps at most twice `MAX_CONCURRENT` send tasks pending (minimum two). With `MAX_CONCURRENT=2` and `SES_BULK_SEND_SIZE=50`, tests keep at most 200 prepared recipients ahead while processing 5,000 recipients in 100 simulated SES calls. Recipient addresses/variables still scale with campaign size; this is not constant-memory processing of the entire input.
+
+Bulk sending defers personalized subject/text/HTML rendering until individual-send fallback or optional formatted-content persistence needs it. Unsubscribe headers and replacement variables remain per recipient. Rate limits count recipient weights, including at rates above 1,000; concurrency below one is clamped to one. Keep rate and batch size within the account's actual SES quota. Multiple worker processes still require coordinated rate limits.
+
+These tests do not send real email. The existing SES-accepted/database-write-failed ambiguity and SQS visibility lifetime remain separate reliability limitations; do not claim exactly-once delivery.
+
 ## Health
 
 ```bash

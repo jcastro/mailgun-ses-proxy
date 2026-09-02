@@ -1,6 +1,27 @@
 import { describe, expect, it, vi } from "vitest"
 
 describe("Performance regressions", () => {
+    it("does not render 5000 redundant personalized bodies for bulk sending", async () => {
+        const { preparePayloadIterator, prepareBulkEmailRequest } = await import("@/lib/core/aws-utils")
+        let rendered = 0
+        const variables = { get name() { rendered++; return "Reader" } }
+        const to = Array.from({ length: 5000 }, (_, n) => n + "@example.com")
+        const input = {
+            from: "test@example.com", to, subject: "Hello %recipient.name%",
+            html: "<p>%recipient.name%</p>" + "x".repeat(100_000),
+            "v:email-id": "test", "recipient-variables": Object.fromEntries(to.map(email => [email, variables])),
+        }
+        const payloads = Array.from(preparePayloadIterator(input, "test", { deferContent: true }))
+        expect(rendered).toBe(0)
+        const bulk = prepareBulkEmailRequest(input, payloads.slice(0, 50))
+        expect(bulk?.BulkEmailEntries).toHaveLength(50)
+        expect(rendered).toBe(50)
+        // Individual fallback and optional persistence must still materialize correct content.
+        expect(payloads[0].request.Content?.Simple?.Body?.Html?.Data).toContain("<p>Reader</p>")
+        expect(rendered).toBe(51)
+        expect(payloads[0].request.Content?.Simple?.Body?.Html?.Data).toContain("<p>Reader</p>")
+        expect(rendered).toBe(51)
+    })
     it("prepares 5000-recipient Ghost newsletter batches without quadratic slowdown", async () => {
         vi.resetModules()
         vi.stubEnv("NEWSLETTER_CONFIGURATION_SET_NAME", "newsletter-config-set")
