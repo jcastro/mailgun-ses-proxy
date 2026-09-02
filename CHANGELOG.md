@@ -2,7 +2,9 @@
 
 All notable changes are tracked through GitHub Releases.
 
-## Unreleased
+## 2.1.15 - 2026-09-02
+
+Upgrade notes: configure and monitor SQS dead-letter queues first, preserve a database backup, and review dashboard provisioning/HTTPS requirements. No automatic deployment is performed. Remaining delivery and dependency limitations are documented in `docs/releases/2.1.15.md`.
 
 - Retain failed newsletter batches for SQS redrive/DLQ instead of deleting them after three deliveries. Require a monitored dead-letter queue before deploying.
 - Reject CC/BCC newsletter destinations before enqueueing and revalidate old queued payloads; per-recipient suppression, metrics and rate accounting must cover every actual destination.
