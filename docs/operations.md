@@ -4,6 +4,10 @@ This page covers day-to-day checks after the proxy is live.
 
 ## Large newsletters
 
+Configure and monitor a dead-letter queue on both the newsletter send queue and event queue before upgrading. Failed newsletter batches are no longer deleted simply for exceeding three deliveries. Set an appropriate SQS redrive policy and retention period, alert on DLQ messages, and diagnose before redriving; do not blindly replay ambiguous SES sends. A broken batch will retry until the queue redrive/retention policy handles it.
+
+Newsletter CC/BCC destinations are rejected. Put each intended recipient in `to` with its own recipient variables. Old queued CC/BCC payloads are not sent and require operator correction in the DLQ. Ghost's regular newsletter requests are unchanged.
+
 The producer keeps at most twice `MAX_CONCURRENT` send tasks pending (minimum two). With `MAX_CONCURRENT=2` and `SES_BULK_SEND_SIZE=50`, tests keep at most 200 prepared recipients ahead while processing 5,000 recipients in 100 simulated SES calls. Recipient addresses/variables still scale with campaign size; this is not constant-memory processing of the entire input.
 
 Bulk sending defers personalized subject/text/HTML rendering until individual-send fallback or optional formatted-content persistence needs it. Unsubscribe headers and replacement variables remain per recipient. Rate limits count recipient weights, including at rates above 1,000; concurrency below one is clamped to one. Keep rate and batch size within the account's actual SES quota. Multiple worker processes still require coordinated rate limits.

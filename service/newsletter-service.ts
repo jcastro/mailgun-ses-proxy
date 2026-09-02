@@ -28,7 +28,6 @@ import {
 
 const log = logger.child({ service: "service:newsletter-service" })
 const PERSIST_FORMATTED_CONTENTS = shouldPersistNewsletterFormattedContents()
-const MAX_RECEIVE_COUNT = 3
 const DEFAULT_RATE_LIMIT = 10
 const DEFAULT_MAX_CONCURRENT = 4
 const DEFAULT_BULK_SEND_SIZE = 10
@@ -62,6 +61,11 @@ function normalizeRecipientList(value: unknown) {
 
 export function validateNewsletterMessage(message: MailgunMessage) {
     if (!message || typeof message !== "object") throw new InputError("Message body is empty or invalid.")
+    for (const [key, value] of Object.entries(message)) {
+        if (["cc", "bcc", "h:cc", "h:bcc"].includes(key.trim().toLowerCase()) && normalizeRecipientList(value).length) {
+            throw new InputError("CC/BCC are not supported for newsletters; use individual to recipients.")
+        }
+    }
     if (!String(message.from || "").trim()) throw new InputError("from is required")
     if (!normalizeRecipientList(message.to).length) throw new InputError("to is required")
     if (!String(message.subject || "").trim()) throw new InputError("subject is required")
@@ -112,7 +116,7 @@ export async function addNewsletterToQueue(message: MailgunMessage, siteId: stri
  *  - On success → message is deleted from SQS
  *  - On partial failure → message stays in SQS for re-delivery;
  *    already-sent recipients are skipped via idempotency check
- *  - After MAX_RECEIVE_COUNT retries → message is deleted to prevent infinite loops
+ *  - Persistent failures remain retryable for the SQS redrive policy/dead-letter queue.
  */
 export async function validateAndSend(message: Message) {
     const batchId = message.Body
@@ -125,10 +129,6 @@ export async function validateAndSend(message: Message) {
     }
 
     const receiveCount = parseInt(message.Attributes?.ApproximateReceiveCount || "0")
-    if (receiveCount > MAX_RECEIVE_COUNT) {
-        log.error({ batchId, receiveCount }, "batch exceeded max retries, discarding")
-        return "delete" as const
-    }
 
     try {
         await processBatch(siteId, batchId)
@@ -152,6 +152,7 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
     if (!contents) {
         throw new Error(`Newsletter batch not found: ${newsletterBatchId}`)
     }
+    validateNewsletterMessage(contents)
 
     const emailBatchId = contents["v:email-id"]
     const alreadyQueuedOrSent = await getNewsletterSentRecipients(newsletterBatchId)

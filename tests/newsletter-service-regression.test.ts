@@ -52,6 +52,39 @@ describe("Newsletter service regressions", () => {
         vi.clearAllMocks()
     })
 
+    it.each(["cc", "bcc", "h:Cc", "h:Bcc", "h:CC"])("rejects untracked %s destinations before persisting or enqueuing", async key => {
+        const { service, createNewsletterBatchEntry, sqsSend } = await loadNewsletterService()
+        await expect(service.addNewsletterToQueue({
+            from: "test@example.com", to: "reader@example.com", subject: "Test", text: "Test",
+            [key]: "copy@example.com",
+        } as any, "test")).rejects.toThrow("CC/BCC")
+        expect(createNewsletterBatchEntry).not.toHaveBeenCalled()
+        expect(sqsSend).not.toHaveBeenCalled()
+    })
+
+    it("does not discard a valid batch after a prolonged database outage", async () => {
+        const { service, getNewsletterContent, sesSend } = await loadNewsletterService()
+        getNewsletterContent.mockRejectedValue(new Error("temporary database outage"))
+        const decision = await service.validateAndSend({
+            Body: "test-batch", Attributes: { ApproximateReceiveCount: "20" },
+            MessageAttributes: { siteId: { StringValue: "test", DataType: "String" }, from: { StringValue: "test@example.com", DataType: "String" } },
+        })
+        expect(decision).toBe("retry")
+        expect(getNewsletterContent).toHaveBeenCalledTimes(1)
+        expect(sesSend).not.toHaveBeenCalled()
+    })
+
+    it("revalidates old queued payloads instead of sending untracked copies", async () => {
+        const { service, getNewsletterContent, sesSend } = await loadNewsletterService()
+        getNewsletterContent.mockResolvedValue({
+            from: "test@example.com", to: "reader@example.com", subject: "Test", text: "Test", "h:Cc": "copy@example.com",
+        })
+        expect(await service.validateAndSend({
+            Body: "test-batch", MessageAttributes: { siteId: { StringValue: "test", DataType: "String" }, from: { StringValue: "test@example.com", DataType: "String" } },
+        })).toBe("retry")
+        expect(sesSend).not.toHaveBeenCalled()
+    })
+
     it("buffers at most four 50-recipient tasks while sending a 5000-recipient campaign", async () => {
         vi.stubEnv("RATE_LIMIT", "1000000")
         vi.stubEnv("MAX_CONCURRENT", "2")

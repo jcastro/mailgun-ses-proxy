@@ -4,6 +4,8 @@ All notable changes are tracked through GitHub Releases.
 
 ## Unreleased
 
+- Retain failed newsletter batches for SQS redrive/DLQ instead of deleting them after three deliveries. Require a monitored dead-letter queue before deploying.
+- Reject CC/BCC newsletter destinations before enqueueing and revalidate old queued payloads; per-recipient suppression, metrics and rate accounting must cover every actual destination.
 - Stream newsletter personalization through a bounded send window and defer large HTML/text substitution for SES bulk sends, reducing peak memory for 5,000+ recipients.
 - Prevent fractional concurrency values below one from stalling the task queue.
 - Keep recipient-weighted rate limiting active even for rates of 1,000 or more; release completed task payload references promptly and drain accepted work before returning a retry on producer failure.
