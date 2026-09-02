@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { authentication } from "./lib/authentication";
 import logger from "./lib/core/logger";
+import { verifySession } from "./lib/dashboard/session";
 
 const log = logger.child({ path: "middleware" })
 
@@ -16,12 +17,12 @@ export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
     // 1. Whitelist / Healthchecks
-    if (WHITELIST.some(path => pathname.startsWith(path))) {
+    if (WHITELIST.includes(pathname)) {
         return NextResponse.next();
     }
 
     // 2. Dashboard routes (Cookie-based auth)
-    if (pathname.startsWith("/dashboard")) {
+    if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
         return handleDashboardAuth(request);
     }
 
@@ -42,7 +43,7 @@ async function handleDashboardAuth(request: NextRequest) {
     }
 
     // Allow public paths (login) without auth
-    if (DASHBOARD_PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
+    if (DASHBOARD_PUBLIC_PATHS.includes(pathname)) {
         return NextResponse.next();
     }
 
@@ -57,22 +58,9 @@ async function handleDashboardAuth(request: NextRequest) {
             : NextResponse.redirect(loginUrl);
     }
 
-    // Lightweight JWT verification (structural and expiration)
-    // Full cryptographic verification happens in the individual API routes
-    try {
-        const parts = token.split(".");
-        if (parts.length !== 3) throw new Error("Invalid format");
-
-        const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-        const now = Math.floor(Date.now() / 1000);
-
-        if (!payload.exp || payload.exp < now) {
-            throw new Error("Expired");
-        }
-    } catch (error) {
-        const errorMsg = error instanceof Error ? error.message.toLowerCase() : "invalid session";
+    if (!await verifySession(token)) {
         return isApiRequest 
-            ? Response.json({ error: errorMsg }, { status: 401 }) 
+            ? Response.json({ error: "invalid session" }, { status: 401 })
             : NextResponse.redirect(loginUrl);
     }
 
@@ -94,5 +82,5 @@ async function handleApiAuth(request: NextRequest) {
 }
 
 export const config = {
-    matcher: "/:path((?!.*\\.(?:css|js|png|jpg|jpeg|gif|webp|svg|ico)).*)",
+    matcher: ["/((?!_next/static/|_next/image$|favicon.ico$).*)"],
 };

@@ -52,23 +52,23 @@ A full admin dashboard for the Mailgun → SES Proxy with authentication, stats,
 npx prisma migrate dev --name add_dashboard_tables
 ```
 
-### 2. Set JWT secret (optional)
+### 2. Set JWT secret (required)
 
 Add to your `.env`:
 
 ```
-DASHBOARD_JWT_SECRET=your-secure-secret-here
+DASHBOARD_JWT_SECRET=<generate-a-unique-random-secret-at-least-32-characters>
+DASHBOARD_ADMIN_EMAIL=<your-admin-email>
+DASHBOARD_ADMIN_PASSWORD=<unique-password-at-least-12-characters>
 ```
 
-### 3. Default admin user
+### 3. Provisioning and upgrades
 
-On first login attempt, the system auto-creates:
+On first login, an empty database is initialized only from the operator-configured credentials above. No public default credentials or remote credential-replacement flow exist. These variables initialize an account; they do not rotate existing users' passwords. Back up the database before an upgrade.
 
-- **Email:** `admin@localhost`
-- **Password:** `admin`
+Existing configured accounts and PBKDF2 password hashes remain compatible. Keep the exact JWT secret bytes to preserve their sessions. The legacy `admin@localhost` identity is disabled. To recover an untouched legacy bootstrap account, explicitly set `DASHBOARD_RESET_LEGACY_ADMIN=true` together with a new admin email/password, restart and log in with the new credentials, then remove the reset flag. Only the legacy identity still using its original password is updated; customized accounts are never overwritten. If that identity has a customized password, rename/reset it through trusted database administration instead.
 
-> [!WARNING]
-> Change the default password immediately after first login.
+Production dashboard cookies require HTTPS, including when TLS is terminated at a reverse proxy. Login reserves attempt limits before database/hash work: eight per normalized email in 15 minutes and a global ceiling of 100 per minute, per process. Forwarding headers cannot reset these limits. Multiple replicas need an additional shared ingress rate limiter; in-memory limits reset on restart.
 
 ## Features
 
@@ -76,6 +76,6 @@ On first login attempt, the system auto-creates:
 - **📊 Stats Overview**: Total batches, accepted messages, delivery/open/click rates, bounces, complaints, unsubscribes, send errors, and activity breakdown
 - **📬 Newsletters DataTable**: Paginated, sortable, searchable by id/site/from/subject/tag contents; click through to batch detail with message status, metrics, and errors
 - **📡 Events DataTable**: Filter by event type, search by message/notification id, and inspect normalized Mailgun fields from SES events
-- **⚙️ Settings**: Edit app configuration with DB/ENV source indicator and toggle support
+- **⚙️ Settings**: Authenticated read-only deployment configuration; changes are made through environment variables
 - **📱 Responsive**: Mobile-friendly with collapsible sidebar
 - **🎨 Dark UI**: Indigo accent palette, glassmorphism header, smooth micro-animations

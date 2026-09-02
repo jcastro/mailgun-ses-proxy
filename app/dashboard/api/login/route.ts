@@ -1,64 +1,47 @@
 import { prisma } from "@/lib/database"
-import { verifyPassword, createSession, setSessionCookie, ensureDefaultUser, hashPassword } from "@/lib/dashboard/auth"
+import { verifyPassword, createSession, setSessionCookie, ensureDefaultUser } from "@/lib/dashboard/auth"
+import { reserveLoginAttempt, reserveAccountAttempt } from "@/lib/dashboard/login-limiter"
 import logger from "@/lib/core/logger"
 
 const log = logger.child({ path: "dashboard/api/login" })
 
 export async function POST(req: Request) {
+    let body: unknown
     try {
-        const body = await req.json()
-        const { email, password, newEmail, newPassword } = body as { email?: string; password?: string; newEmail?: string; newPassword?: string }
-
-        if (!email || !password) {
-            return Response.json({ error: "Email and password are required" }, { status: 400 })
-        }
-
-        // Ensure default admin user exists on first login attempt
+        body = await req.json()
+    } catch {
+        return Response.json({ error: "Invalid request" }, { status: 400 })
+    }
+    const { email, password } = (body ?? {}) as { email?: unknown; password?: unknown }
+    if (typeof email !== "string" || !email.trim() || email.length > 254
+        || typeof password !== "string" || !password) {
+        return Response.json({ error: "Email and password are required" }, { status: 400 })
+    }
+    const retryAfter = reserveLoginAttempt(email)
+    if (retryAfter) return Response.json({ error: "Too many login attempts" },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } })
+    try {
+        if (!process.env.DASHBOARD_JWT_SECRET) throw new Error("Dashboard signing secret is not configured")
         await ensureDefaultUser()
-
-        const user = await prisma.dashboardUser.findUnique({ where: { email } })
-        if (!user) {
-            log.warn({ email }, "Login attempt for non-existent user")
+        const user = await prisma.dashboardUser.findUnique({ where: { email: email.trim() } })
+        // Database collations can equate different email spellings. Limit the stored identity too.
+        const accountRetry = user ? reserveAccountAttempt("id:" + user.id) : 0
+        if (accountRetry) return Response.json({ error: "Too many login attempts" },
+            { status: 429, headers: { "Retry-After": String(accountRetry) } })
+        // The legacy bootstrap identity must be recovered by the operator, never over HTTP.
+        if (!user || user.email === "admin@localhost" || !await verifyPassword(password, user.password)) {
             return Response.json({ error: "Invalid credentials" }, { status: 401 })
         }
-
-        const valid = await verifyPassword(password, user.password)
-        if (!valid) {
-            log.warn({ email }, "Login attempt with invalid password")
-            return Response.json({ error: "Invalid credentials" }, { status: 401 })
-        }
-
-        if (user.email === "admin@localhost" && (!newEmail || !newPassword)) {
-            return Response.json({
-                requireUpdate: true,
-                message: "Please update your default credentials",
-            })
-        }
-
-        let finalUserId = user.id
-        let finalEmail = user.email
-
-        if (user.email === "admin@localhost" && newEmail && newPassword) {
-            const hash = await hashPassword(newPassword)
-            const updated = await prisma.dashboardUser.update({
-                where: { id: user.id },
-                data: { email: newEmail, password: hash }
-            })
-            finalUserId = updated.id
-            finalEmail = updated.email
-            log.info({ oldEmail: email, newEmail }, "Default credentials updated")
-        }
-
-        const token = await createSession(finalUserId, finalEmail, user.name || "")
+        const token = await createSession(user.id, user.email, user.name || "")
         const response = Response.json({
             ok: true,
-            user: { id: finalUserId, email: finalEmail, name: user.name },
+            user: { id: user.id, email: user.email, name: user.name },
         })
         setSessionCookie(response, token)
-        log.info({ email: finalEmail }, "Successful dashboard login")
+        log.info({ userId: user.id }, "Successful dashboard login")
         return response
     } catch (error) {
         log.error(error, "Login error")
-        return Response.json({ error: "Internal server error" }, { status: 500 })
+        return Response.json({ error: "Dashboard unavailable; check server configuration" }, { status: 503 })
     }
 }
