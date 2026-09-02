@@ -62,6 +62,20 @@ describe("TaskQueue Class", () => {
     expect(maxRunning).toBe(2);
   });
 
+  it("does not disable recipient-weighted throttling at high configured rates", async () => {
+    const queue = new TaskQueue({ rateLimit: 1000, maxConcurrent: 10 });
+    const starts: number[] = [];
+    queue.enqueue(async () => { starts.push(performance.now()); }, "bulk-1", 50);
+    queue.enqueue(async () => { starts.push(performance.now()); }, "bulk-2", 50);
+    await queue.waitUntilFinished();
+    expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(45);
+  });
+
+  it("clamps fractional concurrency instead of leaving every item stalled", async () => {
+    const queue = new TaskQueue({ rateLimit: 1000, maxConcurrent: 0.5 });
+    await expect(queue.enqueue(async () => "done")).resolves.toBe("done");
+  });
+
   it("resolves/rejects enqueue promises correctly", async () => {
     const queue = new TaskQueue({ rateLimit: 1000, maxConcurrent: 10 });
 

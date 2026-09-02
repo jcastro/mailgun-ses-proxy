@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto"
 import { InputError } from "@/lib/input-error"
 import {
     canPrepareBulkPayload,
+    getRecipientAddresses,
     PreparedEmail,
     prepareBulkEmailRequest,
     preparePayloadIterator,
@@ -159,10 +160,9 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
     const bulkEnabled = getBoolean(process.env.SES_BULK_SEND_ENABLED, true) && canPrepareBulkPayload(contents)
     const bulkSendSize = bulkEnabled ? getBulkSendSize(process.env.SES_BULK_SEND_SIZE) : 1
     const queue = new TaskQueue({ rateLimit, maxConcurrent })
-    const preparedEmails = Array.from(preparePayloadIterator(contents, siteId))
     const suppressedRecipients = await getActiveSuppressedRecipients(
         siteId,
-        preparedEmails.map(getPreparedToEmail)
+        getRecipientAddresses(contents)
     )
 
     let queuedCount = 0
@@ -170,47 +170,62 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
     let suppressedCount = 0
     let emailCount = 0
     let pendingBulkBatch: PreparedEmail[] = []
+    const pendingTasks = new Set<Promise<void>>()
+    const maxPendingTasks = Math.max(2, Math.floor(maxConcurrent) * 2)
+    let settledTasks = 0
+    let failedTasks = 0
 
-    const enqueuePreparedBatch = (batch: PreparedEmail[]) => {
+    const enqueuePreparedBatch = async (batch: PreparedEmail[]) => {
         if (!batch.length) return
 
         const batchToSend = batch.slice()
         queuedCount += batchToSend.length
-        void queue.enqueue(
+        const task = queue.enqueue(
             () => sendPreparedBatch(contents, batchToSend, newsletterBatchId, siteId, emailBatchId, bulkEnabled),
             emailBatchId,
             batchToSend.length
-        ).catch(() => undefined)
+        ).then(() => { settledTasks++ }, () => { settledTasks++; failedTasks++ })
+        pendingTasks.add(task)
+        void task.finally(() => pendingTasks.delete(task))
+        if (pendingTasks.size >= maxPendingTasks) await Promise.race(pendingTasks)
     }
 
-    for (const prepared of preparedEmails) {
-        emailCount++
-        const toEmail = getPreparedToEmail(prepared)
-        if (!toEmail || alreadyQueuedOrSent.has(toEmail)) {
-            skippedCount++
-            continue
-        }
-
-        alreadyQueuedOrSent.add(toEmail)
-        const suppression = suppressedRecipients.get(normalizeEmailAddress(toEmail))
-        if (suppression) {
-            suppressedCount++
-            await recordSuppressedRecipient(prepared, suppression, newsletterBatchId, siteId, emailBatchId)
-            continue
-        }
-
-        if (bulkSendSize > 1) {
-            pendingBulkBatch.push(prepared)
-            if (pendingBulkBatch.length >= bulkSendSize) {
-                enqueuePreparedBatch(pendingBulkBatch)
-                pendingBulkBatch = []
+    const startedAt = performance.now()
+    log.info({ siteId, emailBatchId, bulkEnabled, bulkSendSize, maxPendingTasks }, "processing newsletter batch")
+    try {
+        for (const prepared of preparePayloadIterator(contents, siteId, { deferContent: bulkEnabled })) {
+            emailCount++
+            const toEmail = getPreparedToEmail(prepared)
+            if (!toEmail || alreadyQueuedOrSent.has(toEmail)) {
+                skippedCount++
+                continue
             }
-        } else {
-            enqueuePreparedBatch([prepared])
-        }
-    }
 
-    enqueuePreparedBatch(pendingBulkBatch)
+            alreadyQueuedOrSent.add(toEmail)
+            const suppression = suppressedRecipients.get(normalizeEmailAddress(toEmail))
+            if (suppression) {
+                suppressedCount++
+                await recordSuppressedRecipient(prepared, suppression, newsletterBatchId, siteId, emailBatchId)
+                continue
+            }
+
+            if (bulkSendSize > 1) {
+                pendingBulkBatch.push(prepared)
+                if (pendingBulkBatch.length >= bulkSendSize) {
+                    await enqueuePreparedBatch(pendingBulkBatch)
+                    pendingBulkBatch = []
+                }
+            } else {
+                await enqueuePreparedBatch([prepared])
+            }
+        }
+
+        await enqueuePreparedBatch(pendingBulkBatch)
+    } finally {
+        // Never let accepted work outlive a failed producer and overlap the next SQS delivery.
+        await Promise.all(pendingTasks)
+        await queue.waitUntilFinished()
+    }
 
     log.info({
         emailCount,
@@ -220,19 +235,19 @@ async function processBatch(siteId: string, newsletterBatchId: string) {
         bulkEnabled,
         bulkSendSize,
         emailBatchId
-    }, "processing newsletter batch")
+    }, "newsletter batch preparation completed")
 
-    const results = await queue.waitUntilFinished()
     log.info({
-        sent: results.settledCount - results.failedCount,
-        failed: results.failedCount,
+        sent: settledTasks - failedTasks,
+        failed: failedTasks,
+        countUnit: "send-tasks",
         skipped: skippedCount,
         suppressed: suppressedCount,
-        durationMs: Math.round(results.totalDuration),
+        durationMs: Math.round(performance.now() - startedAt),
     }, "newsletter batch completed")
 
-    if (results.failedCount > 0) {
-        throw new Error(`${results.failedCount}/${queuedCount} emails failed in batch ${emailBatchId}`)
+    if (failedTasks > 0) {
+        throw new Error(`${failedTasks} send tasks failed for ${queuedCount} recipients in batch ${emailBatchId}`)
     }
 }
 

@@ -52,6 +52,69 @@ describe("Newsletter service regressions", () => {
         vi.clearAllMocks()
     })
 
+    it("buffers at most four 50-recipient tasks while sending a 5000-recipient campaign", async () => {
+        vi.stubEnv("RATE_LIMIT", "1000000")
+        vi.stubEnv("MAX_CONCURRENT", "2")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "true")
+        vi.stubEnv("SES_BULK_SEND_SIZE", "50")
+        const { service, getNewsletterContent, sesSend, createNewsletterEntry } = await loadNewsletterService()
+        const to = Array.from({ length: 5000 }, (_, n) => n + "@example.com")
+        let prepared = 0
+        const variables = new Proxy({}, { get: () => { prepared++; return { name: "Reader" } } })
+        getNewsletterContent.mockResolvedValue({
+            from: "test@example.com", to, subject: "Hello %recipient.name%",
+            html: "<p>%recipient.name%</p>" + "x".repeat(100_000),
+            "v:email-id": "test", "recipient-variables": variables,
+        })
+        let batch = 0
+        const releases: (() => void)[] = []
+        sesSend.mockImplementation(() => {
+            const id = batch++
+            return new Promise(resolve => releases.push(() => resolve({
+                BulkEmailEntryResults: Array.from({ length: 50 }, (_, n) => ({ Status: "SUCCESS", MessageId: "ses-" + id + "-" + n })),
+            })))
+        })
+        let finished = false
+        const result = service.validateAndSend({
+            Body: "test-batch", MessageAttributes: { siteId: { StringValue: "test", DataType: "String" }, from: { StringValue: "test@example.com", DataType: "String" } },
+        }).finally(() => { finished = true })
+        await vi.waitFor(() => expect(sesSend).toHaveBeenCalledTimes(2))
+        expect(prepared).toBeLessThanOrEqual(200)
+        for (let tick = 0; tick < 200 && !finished; tick++) {
+            releases.splice(0).forEach(release => release())
+            await new Promise(resolve => setTimeout(resolve, 1))
+        }
+        expect(finished).toBe(true)
+        expect(await result).toBe("delete")
+        expect(sesSend).toHaveBeenCalledTimes(100)
+        expect(createNewsletterEntry).toHaveBeenCalledTimes(5000)
+    })
+
+    it("drains in-flight sends before returning a retry after producer failure", async () => {
+        vi.stubEnv("RATE_LIMIT", "1000000")
+        vi.stubEnv("MAX_CONCURRENT", "2")
+        vi.stubEnv("SES_BULK_SEND_ENABLED", "false")
+        const { service, getNewsletterContent, getActiveSuppressedRecipients, sesSend, createNewsletterEntry } = await loadNewsletterService()
+        getNewsletterContent.mockResolvedValue({
+            from: "test@example.com", to: ["reader@example.com", "blocked@example.com"],
+            subject: "Test", html: "<p>Test</p>", "v:email-id": "test",
+        })
+        getActiveSuppressedRecipients.mockResolvedValue(new Map([["blocked@example.com", { reason: "complained" }]]))
+        createNewsletterEntry.mockImplementation(async (_id, _batch, email) => {
+            if (email === "blocked@example.com") throw new Error("test database outage")
+        })
+        let release!: () => void
+        sesSend.mockImplementation(() => new Promise(resolve => { release = () => resolve({ MessageId: "ses-reader" }) }))
+        let finished = false
+        const result = service.validateAndSend({
+            Body: "test-batch", MessageAttributes: { siteId: { StringValue: "test", DataType: "String" }, from: { StringValue: "test@example.com", DataType: "String" } },
+        }).finally(() => { finished = true })
+        await vi.waitFor(() => expect(createNewsletterEntry).toHaveBeenCalled())
+        expect(finished).toBe(false)
+        release()
+        expect(await result).toBe("retry")
+    })
+
     it("validates Ghost/Mailgun newsletter messages before writing to the database or SQS", async () => {
         const { service, createNewsletterBatchEntry, sqsSend } = await loadNewsletterService()
 
