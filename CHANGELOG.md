@@ -4,6 +4,9 @@ All notable changes are tracked through GitHub Releases.
 
 ## Unreleased
 
+- Return 503 for newsletter queue/database outages and keep 400 for invalid input; redact internal error messages from send APIs.
+- Replace ineffective dashboard configuration writes with an authenticated, read-only view of the actual deployment variable names. Existing database settings are retained but unused.
+
 - Commit SES event storage and suppression changes atomically, so redelivery cannot count the same transient bounce twice.
 - Keep complaint/permanent-bounce suppressions active when a delayed transient bounce arrives; use atomic failure increments.
 - Deduplicate SNS redeliveries using their SNS notification ID without collapsing legitimate repeated opens and clicks. Raw delivery retains SQS identity.

@@ -89,6 +89,8 @@ At minimum, configure:
 
 See `.env.example` for all available options.
 
+The dashboard settings page is read-only and lists configured environment values, not resolved defaults. Configure queues, regions and sending limits in the deployment environment and recreate the proxy to apply changes. Historical `DashboardSettings` rows never controlled workers and remain untouched; the settings PUT endpoint now returns 405 instead of accepting ineffective changes.
+
 ## Updating
 
 ```bash

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { POST } from '@/app/v3/[siteId]/messages/route'
 import { addNewsletterToQueue } from '@/service/newsletter-service'
+import { InputError } from '@/lib/input-error'
 
 // Mock the service
 vi.mocked(addNewsletterToQueue).mockImplementation(vi.fn())
@@ -118,8 +119,8 @@ describe('/v3/[siteId]/messages POST', () => {
     const result = await response.json()
 
     // Assert
-    expect(response.status).toBe(400)
-    expect(result.message).toEqual('Service unavailable')
+    expect(response.status).toBe(503)
+    expect(result.message).toEqual('Newsletter service temporarily unavailable')
   })
 
   it('should handle non-Error exceptions', async () => {
@@ -140,8 +141,8 @@ describe('/v3/[siteId]/messages POST', () => {
     const result = await response.json()
 
     // Assert
-    expect(response.status).toBe(400)
-    expect(result.message).toEqual('an error occurred')
+    expect(response.status).toBe(503)
+    expect(result.message).toEqual('Newsletter service temporarily unavailable')
   })
 
   it('should handle form data parsing errors', async () => {
@@ -159,6 +160,18 @@ describe('/v3/[siteId]/messages POST', () => {
     // Assert
     expect(response.status).toBe(400)
     expect(result.message).toEqual('Invalid form data')
+  })
+
+  it('keeps input errors as 400 but hides database and AWS internals', async () => {
+    const req = { formData: vi.fn().mockResolvedValue(new FormData()) } as unknown as Request
+    vi.mocked(addNewsletterToQueue).mockRejectedValueOnce(new InputError('to is required'))
+    const invalid = await POST(req, { params: Promise.resolve({ siteId: 'site-123' }) })
+    expect(invalid.status).toBe(400)
+    expect((await invalid.json()).message).toBe('to is required')
+    vi.mocked(addNewsletterToQueue).mockRejectedValueOnce(new Error('sensitive database host and credentials'))
+    const outage = await POST(req, { params: Promise.resolve({ siteId: 'site-123' }) })
+    expect(outage.status).toBe(503)
+    expect(await outage.text()).not.toContain('sensitive')
   })
 
   it('should handle complex form data with multiple recipients', async () => {

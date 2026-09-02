@@ -3,6 +3,7 @@ import { formDataToObject } from "@/lib/core/common"
 import logger from "@/lib/core/logger"
 import { addNewsletterToQueue } from "@/service/newsletter-service"
 import { MailgunMessage } from "@/types/mailgun"
+import { InputError } from "@/lib/input-error"
 
 const log = logger.child({ path: "app:v3:messages" })
 type pathParam = { params: Promise<{ siteId: string }> }
@@ -25,14 +26,20 @@ export async function POST(req: Request, { params }: pathParam) {
         log.info({ messageId, batchId }, "message queued to newsletter SQS")
         return ApiResponse.raw({ id: batchId, message: "message queued to SQS" }, 200)
     } catch (e) {
+        if (e instanceof InputError) return ApiResponse.badRequest(e.message)
         log.error(e, "Error when queuing message to newsletter SQS")
-        const errorMessage = e instanceof Error ? e.message : "an error occurred"
-        return ApiResponse.badRequest(errorMessage)
+        return ApiResponse.error("Newsletter service temporarily unavailable", "Service Unavailable", 503)
     }
 }
 
 async function validateRequest(req: Request): Promise<MailgunMessage> {
-    const data = formDataToObject(await req.formData()) as unknown as MailgunMessage
+    let formData: FormData
+    try {
+        formData = await req.formData()
+    } catch {
+        throw new InputError("Invalid form data")
+    }
+    const data = formDataToObject(formData) as unknown as MailgunMessage
     // fixing Ghost `email_previews` endpoint call
     data["v:email-id"] = (data["v:email-id"] as string) || "no-batch-id-provided"
     return data

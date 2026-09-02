@@ -106,7 +106,7 @@ describe('API Edge Cases', () => {
       const result = await response.json()
 
       expect(response.status).toBe(400)
-      expect(result.message).toBe('Malformed multipart data')
+      expect(result.message).toBe('Invalid form data')
     })
 
     it('should handle null/undefined siteId variations', async () => {
@@ -587,8 +587,8 @@ describe('API Edge Cases', () => {
       const response = await v3MessagesPost(request, { params })
       const result = await response.json()
 
-      expect(response.status).toBe(400)
-      expect(result.message).toBe('Request timeout')
+      expect(response.status).toBe(503)
+      expect(result.message).toBe('Newsletter service temporarily unavailable')
     })
 
     it('should handle memory pressure scenarios', async () => {
