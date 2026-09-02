@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/database"
 import { verifyPassword, createSession, setSessionCookie, ensureDefaultUser } from "@/lib/dashboard/auth"
-import { reserveLoginAttempt } from "@/lib/dashboard/login-limiter"
+import { reserveLoginAttempt, reserveAccountAttempt } from "@/lib/dashboard/login-limiter"
 import logger from "@/lib/core/logger"
 
 const log = logger.child({ path: "dashboard/api/login" })
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     }
     const { email, password } = (body ?? {}) as { email?: unknown; password?: unknown }
     if (typeof email !== "string" || !email.trim() || email.length > 254
-        || typeof password !== "string" || !password || password.length > 256) {
+        || typeof password !== "string" || !password) {
         return Response.json({ error: "Email and password are required" }, { status: 400 })
     }
     const retryAfter = reserveLoginAttempt(email)
@@ -24,6 +24,10 @@ export async function POST(req: Request) {
         if (!process.env.DASHBOARD_JWT_SECRET) throw new Error("Dashboard signing secret is not configured")
         await ensureDefaultUser()
         const user = await prisma.dashboardUser.findUnique({ where: { email: email.trim() } })
+        // Database collations can equate different email spellings. Limit the stored identity too.
+        const accountRetry = user ? reserveAccountAttempt("id:" + user.id) : 0
+        if (accountRetry) return Response.json({ error: "Too many login attempts" },
+            { status: 429, headers: { "Retry-After": String(accountRetry) } })
         // The legacy bootstrap identity must be recovered by the operator, never over HTTP.
         if (!user || user.email === "admin@localhost" || !await verifyPassword(password, user.password)) {
             return Response.json({ error: "Invalid credentials" }, { status: 401 })

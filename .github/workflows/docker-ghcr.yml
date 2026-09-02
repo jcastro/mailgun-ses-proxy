@@ -57,7 +57,7 @@ jobs:
           TEST_DATABASE_URL: mysql://root:test-only-password@127.0.0.1:3306/proxy_test
         run: |
           npm run db:migrate
-          npx vitest --run tests/integration/event-suppression.test.ts
+          npx vitest --run tests/integration/event-suppression.test.ts tests/integration/dashboard-login.test.ts
 
       - name: Build app
         run: DATABASE_URL='mysql://user:pass@127.0.0.1:3306/mailgun_ses_proxy' npm run build

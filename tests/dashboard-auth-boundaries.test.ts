@@ -171,8 +171,23 @@ describe("login endpoint", () => {
     })
     it("rejects malformed/oversized input before querying storage", async () => {
         const post = await load()
-        for (const value of [null, 5, {}, "x".repeat(257)]) expect((await post(request("operator@example.com", value))).status).toBe(400)
+        for (const value of [null, 5, {}]) expect((await post(request("operator@example.com", value))).status).toBe(400)
+        expect((await post(request("x".repeat(255)))).status).toBe(400)
         expect(db.findUnique).not.toHaveBeenCalled()
+    })
+    it("keeps existing long passwords usable", async () => {
+        const password = "x".repeat(257)
+        db.findUnique.mockResolvedValue({ id: "long-password", email: "operator@example.com", password: await hashPassword(password) })
+        const post = await load()
+        expect((await post(request("operator@example.com", password))).status).toBe(200)
+    })
+    it("limits the stored identity even when database collation maps alternate emails to it", async () => {
+        db.findUnique.mockResolvedValue({ id: "same-user", email: "review@example.com", password: "invalid-hash" })
+        const post = await load()
+        const aliases = ["review@example.com", "r\u00e9view@example.com", "r\u00e8view@example.com"]
+        const responses = await Promise.all(aliases.flatMap(email => Array.from({ length: 8 }, () => post(request(email)))))
+        expect(responses.filter(r => r.status === 401)).toHaveLength(8)
+        expect(responses.filter(r => r.status === 429)).toHaveLength(16)
     })
     it("allows attempts again after expiry and caps many distinct accounts", async () => {
         vi.resetModules()
