@@ -4,6 +4,8 @@ All notable changes are tracked through GitHub Releases.
 
 ## Unreleased
 
+- Refresh supported runtime dependencies, including Next.js security patches; Docker now installs the same npm lockfile tested in CI instead of a separate Bun dependency graph.
+- Build and smoke-test the Docker image with an isolated MySQL database on every pull request, without publishing it.
 - Close extension-based API authentication bypasses and verify dashboard JWT signatures at the shared request boundary.
 - Remove default dashboard credentials and public credential replacement; require explicit provisioning and operator-only legacy recovery. Add bounded login throttling and secure production cookies.
 - Preserve existing password hashes and signing-secret bytes; support Unicode session names and reject malformed/expired sessions.

@@ -91,7 +91,7 @@ describe("Ghost/Mailgun payload compatibility regressions", () => {
         const payloads = preparePayload(input, "example.com")
         const request = prepareBulkEmailRequest(input, payloads)
 
-        expect(request?.DefaultContent.Template?.TemplateContent).toMatchObject({
+        expect(request?.DefaultContent?.Template?.TemplateContent).toMatchObject({
             Subject: "Hello {{name}}",
             Html: "<p>{{unsubscribe_url}}</p>",
             Text: "Hello {{name}}",

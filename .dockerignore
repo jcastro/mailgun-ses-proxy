@@ -1,6 +1,16 @@
 **/.classpath
 **/.dockerignore
 **/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.sqlite*
+**/*.log
+**/*backup*
+**/coverage
+**/test-results
+**/playwright-report
+**/.codex
 **/.git
 **/.gitignore
 **/.project

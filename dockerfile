@@ -5,7 +5,7 @@ ENV PORT=3000
 
 # Install openssl for Prisma compatibility in Alpine
 USER root
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl nodejs npm
 
 WORKDIR /app
 
@@ -15,14 +15,14 @@ RUN chown -R bun:bun /app
 USER bun
 
 # Copy package files and install dependencies
-COPY --chown=bun:bun package.json package-lock.json* bun.lock* ./
-RUN bun install --frozen-lockfile
+COPY --chown=bun:bun package.json package-lock.json ./
+RUN npm ci --include=dev --no-audit --no-fund
 
 # Copy the rest of the application code
 COPY --chown=bun:bun . .
 
 # Run build scripts (Prisma generate, Next build, and custom server build)
-RUN DATABASE_URL=mysql://user:pass@localhost:3306/dummy bun run build
+RUN DATABASE_URL=mysql://user:pass@localhost:3306/dummy npm run build
 
 # Expose the application port
 EXPOSE 3000
