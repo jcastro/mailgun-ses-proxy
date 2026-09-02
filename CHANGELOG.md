@@ -2,6 +2,14 @@
 
 All notable changes are tracked through GitHub Releases.
 
+## Unreleased
+
+- Commit SES event storage and suppression changes atomically, so redelivery cannot count the same transient bounce twice.
+- Keep complaint/permanent-bounce suppressions active when a delayed transient bounce arrives; use atomic failure increments.
+- Deduplicate SNS redeliveries using their SNS notification ID without collapsing legitimate repeated opens and clicks. Raw delivery retains SQS identity.
+- Retry known-message events after database outages instead of deleting them solely because their receive count is high. Configure SQS dead-letter queues for persistent failures.
+- Add real MySQL integration tests to pull-request CI.
+
 ## 2.1.14 - 2026-06-01
 
 - Added a timeout around each SQS long-poll request so event workers recover if an AWS SDK receive call hangs.

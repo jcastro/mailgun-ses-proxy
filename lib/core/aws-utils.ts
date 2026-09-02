@@ -529,11 +529,16 @@ function truncateMailgunError(value: unknown, fallback: string) {
 }
 
 export function parseNotificationEvent(messageId: string, inputEvent: string): NotificationEvent {
+    const envelope = JSON.parse(inputEvent)
     const event = unwrapSnsEvent(inputEvent)
     const mailgunType = awsToMailgunType[event.eventType] || "unknown"
 
     return {
-        notificationId: messageId,
+        // SNS retries can create different SQS messages for the same notification.
+        // Do not deduplicate by SES message/type: repeated opens/clicks are valid events.
+        notificationId: envelope.Type === "Notification" && typeof envelope.MessageId === "string"
+            ? `sns:${envelope.MessageId}`
+            : messageId,
         type: String(mailgunType).toLocaleLowerCase(),
         messageId: event.mail.messageId.replace(/^<|>$/g, "").split("@")[0],
         timestamp: normalizeEventTimestamp(getEventTimestamp(event), new Date()),

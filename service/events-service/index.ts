@@ -1,5 +1,5 @@
 import { createEventProcessor } from "@/lib/core/event-processor"
-import { getNewsletterMessage, saveNewsletterNotification } from "../database/db"
+import { getNewsletterMessage, saveNewsletterNotification, prisma } from "../database/db"
 import { applyNewsletterSuppression } from "../suppression-service"
 
 function isGhostNewsletterEvent(event: Parameters<typeof saveNewsletterNotification>[0]) {
@@ -7,8 +7,23 @@ function isGhostNewsletterEvent(event: Parameters<typeof saveNewsletterNotificat
 }
 
 async function saveNewsletterNotificationWithSuppression(event: Parameters<typeof saveNewsletterNotification>[0]) {
-    await saveNewsletterNotification(event)
-    await applyNewsletterSuppression(event)
+    // Event insertion and suppression must commit together. A redelivery must not
+    // increment the transient bounce counter again or lose a failed suppression.
+    await prisma.$transaction(async (tx) => {
+        const existing = await tx.newsletterNotifications.findUnique({
+            where: { notificationId: event.notificationId },
+            select: { id: true },
+        })
+        if (existing) return
+        await tx.newsletterNotifications.create({ data: {
+            messageId: event.messageId,
+            rawEvent: event.raw,
+            type: event.type,
+            notificationId: event.notificationId,
+            timestamp: event.timestamp,
+        } })
+        await applyNewsletterSuppression(event, tx)
+    })
 }
 
 /**
