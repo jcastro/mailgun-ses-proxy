@@ -122,8 +122,8 @@ describe('API Routes Integration', () => {
       const newsletterResult = await newsletterResponse.json()
 
       // Assert - Error handled gracefully
-      expect(newsletterResponse.status).toBe(400)
-      expect(newsletterResult.message).toBe('Queue service unavailable')
+      expect(newsletterResponse.status).toBe(503)
+      expect(newsletterResult.message).toBe('Newsletter service temporarily unavailable')
 
       // Arrange - System email with validation error
       const invalidEmailPayload = {

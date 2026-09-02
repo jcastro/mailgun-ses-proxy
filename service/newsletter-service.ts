@@ -3,6 +3,7 @@ import { MailgunMessage } from "@/types/mailgun"
 import { SendBulkEmailCommand, SendEmailCommand } from "@aws-sdk/client-sesv2"
 import { Message, SendMessageCommand } from "@aws-sdk/client-sqs"
 import { randomUUID } from "node:crypto"
+import { InputError } from "@/lib/input-error"
 import {
     canPrepareBulkPayload,
     PreparedEmail,
@@ -59,12 +60,12 @@ function normalizeRecipientList(value: unknown) {
 }
 
 export function validateNewsletterMessage(message: MailgunMessage) {
-    if (!message || typeof message !== "object") throw new Error("Message body is empty or invalid.")
-    if (!String(message.from || "").trim()) throw new Error("from is required")
-    if (!normalizeRecipientList(message.to).length) throw new Error("to is required")
-    if (!String(message.subject || "").trim()) throw new Error("subject is required")
+    if (!message || typeof message !== "object") throw new InputError("Message body is empty or invalid.")
+    if (!String(message.from || "").trim()) throw new InputError("from is required")
+    if (!normalizeRecipientList(message.to).length) throw new InputError("to is required")
+    if (!String(message.subject || "").trim()) throw new InputError("subject is required")
     if (!String(message.html || "").trim() && !String(message.text || "").trim()) {
-        throw new Error("html or text content is required")
+        throw new InputError("html or text content is required")
     }
 }
 

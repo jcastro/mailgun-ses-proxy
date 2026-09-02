@@ -251,7 +251,7 @@ describe('/v1/send POST', () => {
     expect(result).toEqual({
       success: false,
       error: 'Internal Server Error',
-      message: 'SES service unavailable',
+      message: 'Unable to send email',
     })
   })
 
@@ -270,7 +270,7 @@ describe('/v1/send POST', () => {
     expect(result).toEqual({
       success: false,
       error: 'Internal Server Error',
-      message: 'Invalid JSON',
+      message: 'Unable to send email',
       timestamp: result.timestamp
     })
   })
@@ -328,6 +328,6 @@ describe('/v1/send POST', () => {
     expect(response.status).toBe(500)
     expect(result.success).toBe(false) 
     expect(result.error).toBe("Internal Server Error")
-    expect(result.message).toBe("An unexpected error occurred")
+    expect(result.message).toBe("Unable to send email")
   })
 })

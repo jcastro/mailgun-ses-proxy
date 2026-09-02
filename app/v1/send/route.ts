@@ -57,7 +57,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         requestLog.error({ error: message }, "Failed to process system email")
         
         // Generic errors and config errors (like missing 'from') return 500
-        return ApiResponse.internalError(message)
+        return ApiResponse.internalError("Unable to send email")
     }
 }
 
@@ -76,4 +76,3 @@ function preparePayload(body: any): Partial<EmailPayload> {
         to: typeof body.to === "string" ? [body.to] : body.to
     }
 }
-
