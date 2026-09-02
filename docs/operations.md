@@ -36,6 +36,10 @@ The send queue should usually be empty after a batch completes.
 
 The event queue may briefly fill while SES sends delivery/open/bounce events, then drain.
 
+Configure a dead-letter queue (DLQ) and a redrive policy on each event queue, and alarm on a nonempty DLQ. Known-message events are no longer discarded after `EVENT_MAX_RETRIES`: database failures must remain retryable, or reach the DLQ for inspection. Only unmatched orphan events use the application's age/retry limits. Reprocess a DLQ after fixing the cause; do not purge complaints or bounces.
+
+Event storage and local suppression now commit in the same database transaction. SNS notification IDs identify redeliveries; different SNS IDs remain separate events, even for repeated opens/clicks of the same email. Existing rows retain their old SQS IDs, so an SNS duplicate spanning the upgrade can still be stored once under the new ID. No historical rows are removed by this update.
+
 If the proxy was restored from an older database backup, or the local database was recreated, SES may still deliver older event messages for sends that no longer exist locally. The proxy retries these briefly in case it is a race condition, then discards them after the retry budget is exhausted so the queue can drain.
 
 Alarm-worthy states:

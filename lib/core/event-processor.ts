@@ -51,11 +51,6 @@ export function createEventProcessor(config: EventProcessorConfig) {
         }
 
         const receiveCount = parseInt(message.Attributes?.ApproximateReceiveCount || "0")
-        if (receiveCount > maxRetries) {
-            log.info({ name, messageId: message.MessageId, receiveCount, maxRetries }, "Event exceeded max retries, discarding")
-            return // Returning success deletes the message from SQS
-        }
-
         const result = parseNotificationEvent(message.MessageId, message.Body)
 
         if (shouldProcessEvent && !shouldProcessEvent(result)) {
@@ -80,7 +75,7 @@ export function createEventProcessor(config: EventProcessorConfig) {
             const eventAgeSeconds = getEventAgeSeconds(result)
             const retryWindowExpired = eventAgeSeconds > missingParentRetrySeconds
 
-            if (retryWindowExpired) {
+            if (retryWindowExpired || receiveCount > maxRetries) {
                 log.info({
                     name,
                     messageId: result.messageId,

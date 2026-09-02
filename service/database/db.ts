@@ -3,6 +3,7 @@ import { NotificationEvent } from "../../lib/core/aws-utils"
 import { safeStringify } from "../../lib/core/common"
 import { normalizeEmailAddress, uniqueNormalizedEmails } from "../../lib/core/email-address"
 import { prisma } from "../../lib/database"
+import { Prisma } from "../../lib/generated"
 export { prisma }
 
 function getEnvBoolean(name: string, fallback = false) {
@@ -163,34 +164,48 @@ export async function upsertRecipientSuppression({
     lastMessageId?: string
     lastNewsletterBatchId?: string
     metadata?: unknown
-}) {
+}, db: Prisma.TransactionClient = prisma) {
     const normalizedEmail = normalizeEmailAddress(email)
-    const existing = await prisma.suppressedRecipient.findUnique({
-        where: { siteId_email: { siteId, email: normalizedEmail } },
-        select: { failureCount: true },
-    })
-    const failureCount = incrementFailureCount ? (existing?.failureCount || 0) + 1 : (existing?.failureCount || 0)
+    const failureCount = incrementFailureCount ? 1 : 0
     const shouldActivate = active || (activateAtFailureCount !== undefined && failureCount >= activateAtFailureCount)
     const data = {
-        reason: shouldActivate && incrementFailureCount ? "transient-bounce-threshold" : reason,
-        source,
-        active: shouldActivate,
-        failureCount,
         lastEventType,
         lastMessageId,
         lastNewsletterBatchId,
         metadata: metadata === undefined ? undefined : safeStringify(metadata),
     }
 
-    return prisma.suppressedRecipient.upsert({
-        where: { siteId_email: { siteId, email: normalizedEmail } },
+    const where = { siteId_email: { siteId, email: normalizedEmail } }
+    const result = await db.suppressedRecipient.upsert({
+        where,
         create: {
             siteId,
             email: normalizedEmail,
+            reason: shouldActivate && incrementFailureCount ? "transient-bounce-threshold" : reason,
+            source,
+            active: shouldActivate,
+            failureCount,
             ...data,
         },
-        update: data,
+        update: {
+            ...data,
+            ...(incrementFailureCount ? { failureCount: { increment: 1 } } : {}),
+            ...(active ? { active: true, reason, source } : {}),
+        },
     })
+    if (!active && !result.active) {
+        const reachedThreshold = activateAtFailureCount !== undefined && result.failureCount >= activateAtFailureCount
+        await db.suppressedRecipient.updateMany({
+            where: { siteId, email: normalizedEmail, active: false },
+            data: {
+                reason: reachedThreshold ? "transient-bounce-threshold" : reason,
+                source,
+                ...(reachedThreshold ? { active: true } : {}),
+            },
+        })
+        return (await db.suppressedRecipient.findUnique({ where }))!
+    }
+    return result
 }
 
 export async function getNewsletterContent(newsletterBatchId: string) {
@@ -222,8 +237,8 @@ export async function getNewsletterMessage(messageId: string) {
     })
 }
 
-export async function getNewsletterMessageForSuppression(messageId: string) {
-    return prisma.newsletterMessages.findUnique({
+export async function getNewsletterMessageForSuppression(messageId: string, db: Prisma.TransactionClient = prisma) {
+    return db.newsletterMessages.findUnique({
         where: { messageId },
         include: {
             newsletterBatch: {

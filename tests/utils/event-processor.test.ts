@@ -65,8 +65,22 @@ describe("SES event processor", () => {
         } as any)
 
         expect(result).toBeUndefined()
-        expect(lookupMessage).not.toHaveBeenCalled()
+        expect(lookupMessage).toHaveBeenCalledWith("ses-message-id")
         expect(saveNotification).not.toHaveBeenCalled()
+    })
+
+    it("still saves a known event after repeated database outages", async () => {
+        const saveNotification = vi.fn().mockRejectedValueOnce(new Error("DB unavailable")).mockResolvedValue({})
+        const handler = createEventProcessor({
+            name: "newsletter-events",
+            lookupMessage: vi.fn(async () => ({ id: "local-message" })),
+            saveNotification,
+            maxRetries: 3,
+        })
+        const message = { MessageId: "retry-notification", Body: sesEvent(), Attributes: { ApproximateReceiveCount: "20" } }
+        await expect(handler(message)).rejects.toThrow("DB unavailable")
+        await expect(handler(message)).resolves.toBeUndefined()
+        expect(saveNotification).toHaveBeenCalledTimes(2)
     })
 
     it("deletes events rejected by the processor filter without looking up a parent row", async () => {

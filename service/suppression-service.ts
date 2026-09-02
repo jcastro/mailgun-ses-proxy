@@ -1,5 +1,6 @@
 import { classifyNotificationSuppression, NotificationEvent } from "@/lib/core/aws-utils"
 import logger from "@/lib/core/logger"
+import { Prisma } from "@/lib/generated"
 import {
     getNewsletterMessageForSuppression,
     upsertRecipientSuppression,
@@ -13,11 +14,11 @@ function getTransientBounceThreshold() {
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_TRANSIENT_BOUNCE_THRESHOLD
 }
 
-export async function applyNewsletterSuppression(event: NotificationEvent) {
+export async function applyNewsletterSuppression(event: NotificationEvent, db?: Prisma.TransactionClient) {
     const decision = classifyNotificationSuppression(event)
     if (!decision) return
 
-    const message = await getNewsletterMessageForSuppression(event.messageId)
+    const message = await getNewsletterMessageForSuppression(event.messageId, db)
     if (!message) return
 
     const threshold = getTransientBounceThreshold()
@@ -33,7 +34,7 @@ export async function applyNewsletterSuppression(event: NotificationEvent) {
         lastMessageId: event.messageId,
         lastNewsletterBatchId: message.newsletterBatchId,
         metadata: decision.metadata,
-    })
+    }, db)
 
     if (result.active) {
         log.warn({
