@@ -57,7 +57,7 @@ describe("SQS worker batching", () => {
         expect(receiveInput.MaxNumberOfMessages).toBe(10)
         expect(receiveInput.MessageAttributeNames).toEqual(["siteId", "from"])
         expect(receiveInput.AttributeNames).toBeUndefined()
-        expect(sqsSend.mock.calls[0][1]?.abortSignal).toBeDefined()
+        expect((sqsSend.mock.calls as unknown as Array<[unknown, { abortSignal?: AbortSignal }]>)[0][1]?.abortSignal).toBeDefined()
 
         const deleteInput = sqsSend.mock.calls[1][0].input
         expect(deleteInput.Entries).toEqual([
