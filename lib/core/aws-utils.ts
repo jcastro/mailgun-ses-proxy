@@ -28,6 +28,13 @@ const HEADER_KEYS_TO_SKIP = new Set([
     "to",
     "subject",
     "sender",
+    // SES sets these headers for Simple/Templated content and bulk requests.
+    "content-disposition",
+    "content-type",
+    "date",
+    "message-id",
+    "mime-version",
+    "return-path",
 ])
 
 const RFC_5322_HEADER_NAME = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/

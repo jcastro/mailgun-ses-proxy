@@ -71,6 +71,48 @@ describe("Ghost/Mailgun payload compatibility regressions", () => {
         expect(headers).not.toContainEqual(expect.objectContaining({ Name: "Bad Header" }))
     })
 
+    it.each([
+        "Message-Id",
+        "mEsSaGe-ID",
+        "Date",
+        "MIME-Version",
+        "Content-Disposition",
+        "Content-Type",
+        "return-path",
+    ])("excludes the SES-managed %s header from simple and bulk requests", async (header) => {
+        const { preparePayload, prepareBulkEmailRequest } = await import("@/lib/core/aws-utils")
+        const input = {
+            to: ["reader-one@example.com", "reader-two@example.com"],
+            from: "Example <noreply@example.com>",
+            subject: "Hello %recipient.name%",
+            html: "<p>Hello %recipient.name%</p>",
+            text: "Hello %recipient.name%",
+            "h:Reply-To": "reply@example.com",
+            "h:Auto-Submitted": "auto-generated",
+            "h:List-Unsubscribe": "<%recipient.unsubscribe_url%>",
+            "h:List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "h:X-Ghost-Trace": "preserve-me",
+            "v:email-id": "ghost-email-id",
+            "recipient-variables": {
+                "reader-one@example.com": { name: "One", unsubscribe_url: "https://example.com/u/1" },
+                "reader-two@example.com": { name: "Two", unsubscribe_url: "https://example.com/u/2" },
+            },
+        }
+        const withManagedHeader = { ...input, [`h:${header}`]: "generated-by-ses" }
+        const baseline = preparePayload(input, "example.com")
+        const payloads = preparePayload(withManagedHeader, "example.com")
+
+        expect(payloads.map(item => item.request)).toEqual(baseline.map(item => item.request))
+        expect(prepareBulkEmailRequest(withManagedHeader, payloads)).toEqual(prepareBulkEmailRequest(input, baseline))
+        expect(payloads[0].request.ReplyToAddresses).toEqual(["reply@example.com"])
+        expect(payloads[0].request.Content?.Simple?.Headers).toEqual(expect.arrayContaining([
+            { Name: "List-Unsubscribe", Value: "<https://example.com/u/1>" },
+            { Name: "List-Unsubscribe-Post", Value: "List-Unsubscribe=One-Click" },
+            { Name: "Auto-Submitted", Value: "auto-generated" },
+            { Name: "X-Ghost-Trace", Value: "preserve-me" },
+        ]))
+    })
+
     it("builds SES bulk requests with Mailgun recipient variables and per-recipient headers", async () => {
         const { preparePayload, prepareBulkEmailRequest } = await import("@/lib/core/aws-utils")
         const input = {
