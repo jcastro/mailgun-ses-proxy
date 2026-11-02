@@ -2,6 +2,13 @@
 
 All notable changes are tracked through GitHub Releases.
 
+## 2.1.16 - 2026-11-02
+
+- Filter SES-managed headers, including Ghost's `Message-Id`, out of custom headers in both single-recipient and bulk sends. This prevents `BadRequestException: Header <Message-Id> is not supported` from blocking newsletters.
+- Preserve reply-to handling, unsubscribe links, one-click unsubscribe, recipient personalization, event tags, and allowed custom headers.
+- Add case-insensitive regression tests for all newly filtered SES-managed headers across single and bulk requests.
+- No database migrations or queue resets are required. Existing queued batches are processed with the corrected filter after updating. Recovery notes are in `docs/releases/2.1.16.md`.
+
 ## 2.1.15 - 2026-09-02
 
 Upgrade notes: configure and monitor SQS dead-letter queues first, preserve a database backup, and review dashboard provisioning/HTTPS requirements. No automatic deployment is performed. Remaining delivery and dependency limitations are documented in `docs/releases/2.1.15.md`.
