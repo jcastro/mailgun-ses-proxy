@@ -1,6 +1,6 @@
 {
     "name": "mailgun-to-ses-proxy",
-    "version": "2.1.16",
+    "version": "2.1.17",
     "private": true,
     "license": "AGPL-3.0-only",
     "repository": {
@@ -40,7 +40,7 @@
         "dotenv": "^17.3.1",
         "lucide-react": "^1.11.0",
         "mariadb": "^3.5.4",
-        "next": "^16.3.4",
+        "next": "^16.4.4",
         "pino": "^10.3.1",
         "postcss": "^8.5.26",
         "prisma": "^7.10.0",
@@ -59,10 +59,13 @@
         "tailwindcss": "^4.2.4",
         "ts-node": "^10.9.2",
         "typescript": "^5.9.3",
-        "vitest": "^4.0.1"
+        "vitest": "^4.1.12"
     },
     "overrides": {
         "postcss": "$postcss",
-        "@hono/node-server": "^2.0.0"
+        "@hono/node-server": "^2.0.0",
+        "vitest": {
+            "vite": "^7.3.7"
+        }
     }
 }

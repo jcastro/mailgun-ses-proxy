@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Reject known critical dependency vulnerabilities
+        run: npm audit --audit-level=critical
+
       - name: Generate Prisma client
         run: DATABASE_URL='mysql://user:pass@127.0.0.1:3306/mailgun_ses_proxy' npm run db:generate
 
