@@ -2,6 +2,14 @@
 
 All notable changes are tracked through GitHub Releases.
 
+## 2.1.17 - 2026-11-03
+
+- Update Next.js from 16.3.4 to 16.4.4 and its locked Sharp dependency to 0.35.5, including matching native binaries. These versions resolve the reported critical Next.js advisories and the vulnerable image-rendering dependency.
+- Update the bundled Vitest toolchain to 4.1.12, removing its additional critical UI-server advisory and the reported mocker advisories. Keep its Vite dependency on the patched 7.3.7 release line instead of introducing a Vite major-version upgrade.
+- Add regression checks for the patched framework/image dependency versions and matching Next.js compiler packages. CI now rejects known critical vulnerabilities before building or publishing an image.
+- Preserve the SES-managed header fix from 2.1.16. Sending behavior, authentication, subscriptions, suppression rules, rate limits, queues, and the database schema are unchanged.
+- This is not an all-dependencies security clearance: other high/moderate dependency advisories remain outside this focused update. Details and controlled deployment checks are in `docs/releases/2.1.17.md`.
+
 ## 2.1.16 - 2026-11-02
 
 - Filter SES-managed headers, including Ghost's `Message-Id`, out of custom headers in both single-recipient and bulk sends. This prevents `BadRequestException: Header <Message-Id> is not supported` from blocking newsletters.
